@@ -25,19 +25,19 @@ Instead of JNI, this library uses `java.lang.foreign` to:
 
 | Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) |
 | :--- | :---: | :---: | :---: |
-| **Port Enumeration** | ✅ | ✅ (Generic Name) | 🚧 (Skeleton) |
+| **Port Enumeration** | ✅ | ✅ (Generic Name) | ✅ |
 | **Message Output** | ✅ | ✅ | ✅ |
-| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | 🚧 (Polling) |
-| **Port Names** | ✅ | 🚧 (Placeholder) | 🚧 (Skeleton) |
-| **Sysex Support** | 🚧 | 🚧 | 🚧 |
-| **Virtual Ports** | ❌ (N/A) | 🚧 | 🚧 |
+| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) |
+| **Port Names** | ✅ | 🚧 (Placeholder) | ✅ |
+| **Sysex Support** | 🚧 | 🚧 | ✅ |
+| **Virtual Ports** | ❌ (N/A) | 🚧 | ✅ |
 
 ## Implementation Progress
 - [x] Core Multi-Backend Architecture
 - [x] Windows WinMM (In/Out/Enumeration)
 - [x] macOS CoreMIDI (Out/In-Upcall-Skeleton)
-- [x] Linux ALSA (Out-Skeleton/In-Thread-Skeleton)
+- [x] Linux ALSA (Full In/Out/Enumeration/Sysex)
 - [ ] Windows Sysex Support
 - [ ] macOS CFString Real Name Extraction
-- [ ] Linux ALSA Port Enumeration Loop
-- [ ] Linux ALSA Event Parsing
+- [x] Linux ALSA Port Enumeration Loop
+- [x] Linux ALSA Event Parsing

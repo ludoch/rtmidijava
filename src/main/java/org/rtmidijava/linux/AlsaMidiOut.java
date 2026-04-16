@@ -2,47 +2,11 @@ package org.rtmidijava.linux;
 
 import org.rtmidijava.RtMidiOut;
 import java.lang.foreign.*;
-import java.lang.invoke.MethodHandle;
+import java.util.List;
+
+import static org.rtmidijava.linux.AlsaApi.*;
 
 public class AlsaMidiOut extends RtMidiOut {
-    private static final Linker LINKER = Linker.nativeLinker();
-    private static final SymbolLookup ALSA = SymbolLookup.libraryLookup("libasound.so.2", Arena.global());
-
-    private static final MethodHandle snd_seq_open = LINKER.downcallHandle(
-            ALSA.find("snd_seq_open").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_set_client_name = LINKER.downcallHandle(
-            ALSA.find("snd_seq_set_client_name").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
-    private static final MethodHandle snd_seq_create_simple_port = LINKER.downcallHandle(
-            ALSA.find("snd_seq_create_simple_port").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_connect_to = LINKER.downcallHandle(
-            ALSA.find("snd_seq_connect_to").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_event_output_direct = LINKER.downcallHandle(
-            ALSA.find("snd_seq_event_output_direct").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
-    private static final MethodHandle snd_seq_client_info_malloc = LINKER.downcallHandle(
-            ALSA.find("snd_seq_client_info_malloc").get(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
-    private static final MethodHandle snd_seq_query_next_client = LINKER.downcallHandle(
-            ALSA.find("snd_seq_query_next_client").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
     private MemorySegment seqHandle = MemorySegment.NULL;
     private int vPort = -1;
 
@@ -51,77 +15,41 @@ public class AlsaMidiOut extends RtMidiOut {
         return Api.LINUX_ALSA;
     }
 
-    private static final MethodHandle snd_seq_client_info_sizeof = LINKER.downcallHandle(
-            ALSA.find("snd_seq_client_info_sizeof").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG)
-    );
-
-    private static final MethodHandle snd_seq_client_info_set_client = LINKER.downcallHandle(
-            ALSA.find("snd_seq_client_info_set_client").get(),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_port_info_sizeof = LINKER.downcallHandle(
-            ALSA.find("snd_seq_port_info_sizeof").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_LONG)
-    );
-
-    private static final MethodHandle snd_seq_port_info_set_client = LINKER.downcallHandle(
-            ALSA.find("snd_seq_port_info_set_client").get(),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_port_info_set_port = LINKER.downcallHandle(
-            ALSA.find("snd_seq_port_info_set_port").get(),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT)
-    );
-
-    private static final MethodHandle snd_seq_query_next_port = LINKER.downcallHandle(
-            ALSA.find("snd_seq_query_next_port").get(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
-    private static final MethodHandle snd_seq_port_info_get_name = LINKER.downcallHandle(
-            ALSA.find("snd_seq_port_info_get_name").get(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
-
     @Override
     public int getPortCount() {
-        int count = 0;
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
-            snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), 2, 0);
-            MemorySegment h = pHandle.get(ValueLayout.ADDRESS, 0);
-
-            MemorySegment cInfo = arena.allocate((long) snd_seq_client_info_sizeof.invokeExact());
-            snd_seq_client_info_set_client.invokeExact(cInfo, -1);
-            
-            while ((int) snd_seq_query_next_client.invokeExact(h, cInfo) == 0) {
-                // For now just count clients as a placeholder
-                count++; 
-            }
-        } catch (Throwable t) {}
-        return count; 
+        return getPorts(false).size();
     }
 
     @Override
     public String getPortName(int portNumber) {
-        return "ALSA Port " + portNumber;
+        List<AlsaPortInfo> ports = getPorts(false);
+        if (portNumber >= 0 && portNumber < ports.size()) {
+            return ports.get(portNumber).name;
+        }
+        return null;
     }
 
     @Override
     public void openPort(int portNumber, String portName) {
+        List<AlsaPortInfo> ports = getPorts(false);
+        if (portNumber < 0 || portNumber >= ports.size()) {
+            throw new RuntimeException("Invalid port number");
+        }
+        AlsaPortInfo dest = ports.get(portNumber);
+
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
-            snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), 2, 0); // 2 = SND_SEQ_OPEN_OUTPUT
-            seqHandle = pHandle.get(ValueLayout.ADDRESS, 0);
+            if (seqHandle.equals(MemorySegment.NULL)) {
+                MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
+                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_OUTPUT, 0);
+                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+            }
             
             snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
-            vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 1 << 1, 1 << 1); // WRITE_CAP, MIDI_GENERIC
+            vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
+                SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
-            // Logic to find dest client/port from portNumber would go here
-            // snd_seq_connect_to.invokeExact(seqHandle, vPort, destClient, destPort);
+            snd_seq_connect_to.invokeExact(seqHandle, vPort, dest.client, dest.port);
             
             connected = true;
         } catch (Throwable t) {
@@ -131,11 +59,32 @@ public class AlsaMidiOut extends RtMidiOut {
 
     @Override
     public void openVirtualPort(String portName) {
-        openPort(0, portName);
+        try (Arena arena = Arena.ofConfined()) {
+            if (seqHandle.equals(MemorySegment.NULL)) {
+                MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
+                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_OUTPUT, 0);
+                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+            }
+            
+            snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
+            vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
+                SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+            
+            connected = true;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
     }
 
     @Override
     public void closePort() {
+        if (!seqHandle.equals(MemorySegment.NULL)) {
+            try {
+                snd_seq_close.invokeExact(seqHandle);
+            } catch (Throwable t) {}
+            seqHandle = MemorySegment.NULL;
+        }
         connected = false;
     }
 
@@ -143,12 +92,47 @@ public class AlsaMidiOut extends RtMidiOut {
     public void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
-            // snd_seq_event_t: type(1), flags(1), tag(1), queue(1), time(8), source(2), dest(2), data(12)
-            MemorySegment ev = arena.allocate(28); 
-            ev.set(ValueLayout.JAVA_BYTE, 0, (byte) 6); // SND_SEQ_EVENT_NOTEON (example)
-            // This requires mapping message[0] to ALSA types and filling the union
-            // For raw MIDI, ALSA has SND_SEQ_EVENT_SYSEX or SND_SEQ_EVENT_MBUF
+            MemorySegment ev = arena.allocate(snd_seq_event_t);
+            ev.fill((byte) 0);
+            
+            byte status = message[0];
+            int type = (status & 0xFF) >> 4;
+            int channel = status & 0x0F;
+            
+            if ((status & 0xFF) == 0xF0) {
+                ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("type")), SND_SEQ_EVENT_SYSEX);
+                MemorySegment sysexData = arena.allocateFrom(ValueLayout.JAVA_BYTE, message);
+                ev.set(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("len")), message.length);
+                ev.set(ValueLayout.ADDRESS, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")), sysexData);
+            } else {
+                byte alsaType = 0;
+                switch (type) {
+                    case 0x9: alsaType = SND_SEQ_EVENT_NOTEON; break;
+                    case 0x8: alsaType = SND_SEQ_EVENT_NOTEOFF; break;
+                    case 0xA: alsaType = SND_SEQ_EVENT_KEYPRESS; break;
+                    case 0xB: alsaType = SND_SEQ_EVENT_CONTROLLER; break;
+                    case 0xC: alsaType = SND_SEQ_EVENT_PGMCHANGE; break;
+                    case 0xD: alsaType = SND_SEQ_EVENT_CHANPRESS; break;
+                    case 0xE: alsaType = SND_SEQ_EVENT_PITCHBEND; break;
+                }
+                
+                if (alsaType != 0) {
+                    ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("type")), alsaType);
+                    ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("note"), MemoryLayout.PathElement.groupElement("channel")), (byte)channel);
+                    if (message.length > 1)
+                        ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("note"), MemoryLayout.PathElement.groupElement("note")), message[1]);
+                    if (message.length > 2)
+                        ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("note"), MemoryLayout.PathElement.groupElement("velocity")), message[2]);
+                }
+            }
+
+            ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("source"), MemoryLayout.PathElement.groupElement("port")), (byte) vPort);
+            ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("client")), (byte) 254);
+            ev.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("port")), (byte) 254);
+
             snd_seq_event_output_direct.invokeExact(seqHandle, ev);
-        } catch (Throwable t) {}
+        } catch (Throwable t) {
+            // t.printStackTrace();
+        }
     }
 }
