@@ -19,6 +19,15 @@ public class ThreadUtils {
     // Mac specific
     private static final MethodHandle thread_self;
     private static final MethodHandle thread_policy_set;
+    private static final int THREAD_TIME_CONSTRAINT_POLICY = 2;
+
+    // mach_timebase_info and thread_time_constraint_policy_data_t
+    public static final StructLayout thread_time_constraint_policy_data_t = MemoryLayout.structLayout(
+        ValueLayout.JAVA_INT.withName("period"),
+        ValueLayout.JAVA_INT.withName("computation"),
+        ValueLayout.JAVA_INT.withName("constraint"),
+        ValueLayout.JAVA_BYTE.withName("preemptible")
+    );
 
     static {
         String os = System.getProperty("os.name").toLowerCase();
@@ -57,14 +66,15 @@ public class ThreadUtils {
                 MemorySegment handle = (MemorySegment) getCurrentThread.invokeExact();
                 setThreadPriority.invokeExact(handle, THREAD_PRIORITY_TIME_CRITICAL);
             } else if (thread_policy_set != null) { // Mac
-                // Pro-Audio Mac policy: Time Constraint
-                // Simplified for this port, but matching RtMidi logic
                 int thread = (int) thread_self.invokeExact();
-                // We'll use RR as a fallback if full constraint logic is too verbose for a single file
                 try (Arena arena = Arena.ofConfined()) {
-                    MemorySegment param = arena.allocate(ValueLayout.JAVA_INT);
-                    param.set(ValueLayout.JAVA_INT, 0, 99);
-                    pthread_setschedparam.invokeExact((long)pthread_self.invokeExact(), SCHED_RR, param);
+                    MemorySegment policy = arena.allocate(thread_time_constraint_policy_data_t);
+                    // Values matching RtMidi/JUCE recommendations for MIDI
+                    policy.set(ValueLayout.JAVA_INT, 0, 10000000); // period
+                    policy.set(ValueLayout.JAVA_INT, 4, 1000000);  // computation
+                    policy.set(ValueLayout.JAVA_INT, 8, 1000000);  // constraint
+                    policy.set(ValueLayout.JAVA_BYTE, 12, (byte) 1); // preemptible
+                    thread_policy_set.invokeExact(thread, THREAD_TIME_CONSTRAINT_POLICY, policy, 4); // 4 = count of ints
                 }
             } else if (pthread_setschedparam != null) { // Linux
                 try (Arena arena = Arena.ofConfined()) {
