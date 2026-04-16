@@ -6,7 +6,12 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RtMidiTest {
 
     @Test
-    public void testCreateIn() {
+    public void testApi() {
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) {
+            System.out.println("Windows MIDI 2.0 Status: " + org.rtmidijava.windows.WindowsMidiServices.getStatusMessage());
+        }
+
         RtMidiIn midiIn = RtMidiFactory.createDefaultIn();
         assertNotNull(midiIn);
         System.out.println("API: " + midiIn.getCurrentApi());
