@@ -83,7 +83,15 @@ midiIn.setFastCallback((timeStamp, segment) -> {
 
 See `src/main/java/org/rtmidijava/examples/` for complete examples of `MidiMonitor` and `MidiSender`.
 
-## Continuous Integration
+## Development & Releases
+
+### Bumping the Version
+To release a new version:
+1. Update the version in `pom.xml` (e.g., from `1.0.1-SNAPSHOT` to `1.0.1`).
+2. Run `mvn deploy -DskipTests` to push the artifact to GitHub Packages.
+3. Update the version to the next snapshot (e.g., `1.0.2-SNAPSHOT`).
+
+### Continuous Integration
 This library is validated via an on-demand GitHub Action across:
 - `windows-latest`
 - `macos-latest`
