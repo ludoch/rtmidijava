@@ -85,19 +85,18 @@ public class CoreMidiIn extends RtMidiIn {
     }
 
     // This method is called by the native thread via upcallStub
-    private void onMidiMessage(MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
+    private synchronized void onMidiMessage(MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
+        if (!connected) return;
         int numPackets = pktList.get(ValueLayout.JAVA_INT, 0);
-        long offset = 8; // Offset 8 due to alignment of MIDIPacket
+        long offset = 4; // Skip numPackets (uint32)
         for (int i = 0; i < numPackets; i++) {
+            if (offset % 8 != 0) offset += (8 - (offset % 8));
             long timeStamp = pktList.get(ValueLayout.JAVA_LONG, offset);
             short length = pktList.get(ValueLayout.JAVA_SHORT, offset + 8);
             byte[] data = new byte[length];
             MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
-            
             onIncomingMessage(timeStamp / 1_000_000_000.0, data); 
-            
             offset += 10 + length;
-            if (offset % 4 != 0) offset += (4 - (offset % 4));
         }
     }
 
@@ -144,7 +143,7 @@ public class CoreMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
@@ -174,7 +173,7 @@ public class CoreMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
@@ -204,7 +203,7 @@ public class CoreMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (client != 0) {
             try {
                 midiClientDispose.invokeExact(client);

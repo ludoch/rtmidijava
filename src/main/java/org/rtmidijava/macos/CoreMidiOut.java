@@ -107,7 +107,7 @@ public class CoreMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
@@ -135,7 +135,7 @@ public class CoreMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
              MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
@@ -165,7 +165,7 @@ public class CoreMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (client != 0) {
             try {
                 midiClientDispose.invokeExact(client);
@@ -178,7 +178,7 @@ public class CoreMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void sendMessage(byte[] message) {
+    public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
             int packetSize = 8 + 2 + message.length;

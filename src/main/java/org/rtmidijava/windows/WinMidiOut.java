@@ -44,7 +44,7 @@ public class WinMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
         instanceArena = Arena.ofShared();
         try {
@@ -69,7 +69,7 @@ public class WinMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (connected && !hMidiOut.equals(MemorySegment.NULL)) {
             try {
                 midiOutClose.invokeExact(hMidiOut);
@@ -85,7 +85,7 @@ public class WinMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void sendMessage(byte[] message) {
+    public synchronized void sendMessage(byte[] message) {
         if (!connected || hMidiOut.equals(MemorySegment.NULL)) return;
         
         if (message.length <= 3 && (message[0] & 0xFF) < 0xF0) {

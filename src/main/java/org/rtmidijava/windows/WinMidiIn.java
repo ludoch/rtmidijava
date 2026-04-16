@@ -30,7 +30,8 @@ public class WinMidiIn extends RtMidiIn {
         }
     }
 
-    private void midiInProc(MemorySegment hMidiIn, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
+    private synchronized void midiInProc(MemorySegment hMidiIn, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
+        if (!connected) return;
         double timestamp = (dwParam2 - startTime) / 1000.0;
         if (wMsg == MIM_DATA) {
             byte status = (byte) (dwParam1 & 0xFF);
@@ -94,7 +95,7 @@ public class WinMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
         instanceArena = Arena.ofShared();
         try {
@@ -134,7 +135,7 @@ public class WinMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (connected && !hMidiIn.equals(MemorySegment.NULL)) {
             try {
                 midiInStop.invokeExact(hMidiIn);
