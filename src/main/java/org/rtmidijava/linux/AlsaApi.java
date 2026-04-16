@@ -114,6 +114,18 @@ public class AlsaApi {
     public static final MethodHandle snd_seq_port_info_get_type = downcall("snd_seq_port_info_get_type",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
+    public static final MethodHandle snd_seq_set_client_pool_input = downcall("snd_seq_set_client_pool_input",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    public static final MethodHandle snd_seq_set_client_pool_output = downcall("snd_seq_set_client_pool_output",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    public static final MethodHandle snd_seq_poll_descriptors_count = downcall("snd_seq_poll_descriptors_count",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+
+    public static final MethodHandle snd_seq_poll_descriptors = downcall("snd_seq_poll_descriptors",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_SHORT));
+
     private static MethodHandle downcall(String name, FunctionDescriptor desc) {
         return LINKER.downcallHandle(ALSA.find(name).get(), desc);
     }

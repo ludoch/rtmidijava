@@ -57,14 +57,16 @@ public class JackMidiIn extends RtMidiIn {
 
     @Override
     public int getPortCount() {
-        initClient();
+        MemorySegment ctrl = getControlClient();
+        if (ctrl.equals(MemorySegment.NULL)) return 0;
         int count = 0;
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(client, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput);
+            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(ctrl, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput);
             if (ports.equals(MemorySegment.NULL)) return 0;
             while (!ports.getAtIndex(ValueLayout.ADDRESS, count).equals(MemorySegment.NULL)) {
                 count++;
             }
+            jack_free.invokeExact(ports);
         } catch (Throwable t) {}
         return count;
     }
@@ -72,7 +74,7 @@ public class JackMidiIn extends RtMidiIn {
     private void initClient() {
         if (client.equals(MemorySegment.NULL)) {
             try (Arena arena = Arena.ofConfined()) {
-                client = (MemorySegment) jack_client_open.invokeExact(arena.allocateFrom("RtMidiJava"), JackNoStartServer, MemorySegment.NULL);
+                client = (MemorySegment) jack_client_open.invokeExact(arena.allocateFrom("RtMidiJava In"), JackNoStartServer, MemorySegment.NULL);
                 if (client.equals(MemorySegment.NULL)) throw new RuntimeException("JACK server not running?");
                 jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
                 jack_activate.invokeExact(client);
@@ -84,21 +86,29 @@ public class JackMidiIn extends RtMidiIn {
 
     @Override
     public String getPortName(int portNumber) {
-        initClient();
+        MemorySegment ctrl = getControlClient();
+        if (ctrl.equals(MemorySegment.NULL)) return null;
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(client, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput);
+            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(ctrl, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput);
             if (ports.equals(MemorySegment.NULL)) return null;
             MemorySegment p = ports.getAtIndex(ValueLayout.ADDRESS, portNumber);
-            if (p.equals(MemorySegment.NULL)) return null;
-            return p.reinterpret(256).getString(0);
+            if (p.equals(MemorySegment.NULL)) {
+                jack_free.invokeExact(ports);
+                return null;
+            }
+            String name = p.reinterpret(256).getString(0);
+            jack_free.invokeExact(ports);
+            return name;
         } catch (Throwable t) {}
         return null;
     }
 
     @Override
     public synchronized void openPort(int portNumber, String portName) {
-        initClient();
         String srcName = getPortName(portNumber);
+        if (srcName == null) throw new RuntimeException("Invalid port number");
+
+        initClient();
         openVirtualPort(portName);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pName = (MemorySegment) jack_port_name.invokeExact(port);
