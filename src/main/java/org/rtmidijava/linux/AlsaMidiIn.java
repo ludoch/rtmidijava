@@ -12,7 +12,8 @@ public class AlsaMidiIn extends RtMidiIn {
     private int vPort = -1;
     private Thread worker;
     private final ByteArrayOutputStream sysexBuffer = new ByteArrayOutputStream();
-    private Callback javaCallback;
+    private int pipeRead = -1;
+    private int pipeWrite = -1;
 
     @Override
     public Api getCurrentApi() {
@@ -45,10 +46,23 @@ public class AlsaMidiIn extends RtMidiIn {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
                 int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, 0);
-                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                if (result < 0) {
+                    MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
+                    String errMsg = errPtr.reinterpret(256).getString(0);
+                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+                
+                // Pro-Audio: Increase client pool for large Sysex
+                snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
             }
             
+            // Pro-Audio: Create wakeup pipe for clean shutdown
+            MemorySegment fds = arena.allocate(ValueLayout.JAVA_INT, 2);
+            UnixApi.pipe.invokeExact(fds);
+            pipeRead = fds.get(ValueLayout.JAVA_INT, 0);
+            pipeWrite = fds.get(ValueLayout.JAVA_INT, 4);
+
             snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
@@ -68,10 +82,23 @@ public class AlsaMidiIn extends RtMidiIn {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
                 int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, 0);
-                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                if (result < 0) {
+                    MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
+                    String errMsg = errPtr.reinterpret(256).getString(0);
+                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+                
+                // Pro-Audio: Increase client pool for large Sysex
+                snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
             }
             
+            // Pro-Audio: Create wakeup pipe for clean shutdown
+            MemorySegment fds = arena.allocate(ValueLayout.JAVA_INT, 2);
+            UnixApi.pipe.invokeExact(fds);
+            pipeRead = fds.get(ValueLayout.JAVA_INT, 0);
+            pipeWrite = fds.get(ValueLayout.JAVA_INT, 4);
+
             snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
@@ -85,12 +112,33 @@ public class AlsaMidiIn extends RtMidiIn {
 
     private void startWorker() {
         worker = new Thread(() -> {
-            UnixApi.setThreadPriority(99);
+            org.rtmidijava.utils.ThreadUtils.makeRealTime();
             try (Arena arena = Arena.ofShared()) {
-                MemorySegment pEv = arena.allocate(ValueLayout.ADDRESS);
+                int alsaCount = (int) snd_seq_poll_descriptors_count.invokeExact(seqHandle, UnixApi.POLLIN);
+                int totalCount = alsaCount + 1;
+                MemorySegment pollFds = arena.allocate(UnixApi.pollfd, totalCount);
+                
                 while (connected) {
-                    int result = (int) snd_seq_event_input.invokeExact(seqHandle, pEv);
-                    if (result >= 0) {
+                    // Fill poll descriptors for ALSA
+                    snd_seq_poll_descriptors.invokeExact(seqHandle, pollFds, alsaCount, UnixApi.POLLIN);
+                    
+                    // Add our wakeup pipe
+                    MemorySegment pipeFd = pollFds.asSlice(alsaCount * UnixApi.pollfd.byteSize());
+                    pipeFd.set(ValueLayout.JAVA_INT, 0, pipeRead);
+                    pipeFd.set(ValueLayout.JAVA_SHORT, 4, UnixApi.POLLIN);
+                    pipeFd.set(ValueLayout.JAVA_SHORT, 6, (short)0);
+
+                    int pollResult = (int) UnixApi.poll.invokeExact(pollFds, (long) totalCount, -1);
+                    if (pollResult <= 0) continue;
+
+                    // Check wakeup pipe
+                    if ((pipeFd.get(ValueLayout.JAVA_SHORT, 6) & UnixApi.POLLIN) != 0) {
+                        break; // Exit requested
+                    }
+
+                    // Process MIDI events
+                    MemorySegment pEv = arena.allocate(ValueLayout.ADDRESS);
+                    while ((int) snd_seq_event_input.invokeExact(seqHandle, pEv) >= 0) {
                         MemorySegment ev = pEv.get(ValueLayout.ADDRESS, 0).reinterpret(snd_seq_event_t.byteSize());
                         byte[] midi = parseEvent(ev);
                         if (midi != null) {
@@ -161,25 +209,51 @@ public class AlsaMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
+        if (!connected) return;
         connected = false;
+
+        // Pro-Audio: Wake up worker thread from blocking poll
+        if (pipeWrite != -1) {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment b = arena.allocate(1);
+                b.set(ValueLayout.JAVA_BYTE, 0, (byte) 1);
+                UnixApi.write.invokeExact(pipeWrite, b, 1L);
+            } catch (Throwable t) {}
+        }
+
         if (!seqHandle.equals(MemorySegment.NULL)) {
             try {
                 snd_seq_close.invokeExact(seqHandle);
             } catch (Throwable t) {}
             seqHandle = MemorySegment.NULL;
         }
-        if (worker != null) worker.interrupt();
+
+        if (pipeRead != -1) {
+            try {
+                UnixApi.close.invokeExact(pipeRead);
+                UnixApi.close.invokeExact(pipeWrite);
+            } catch (Throwable t) {}
+            pipeRead = -1;
+            pipeWrite = -1;
+        }
+
+        if (worker != null) {
+            try {
+                worker.join(500);
+            } catch (InterruptedException e) {}
+            worker = null;
+        }
     }
 
     @Override
     public void setCallback(Callback callback) {
-        this.javaCallback = callback;
+        this.callback = callback;
     }
 
     @Override
     public void cancelCallback() {
-        this.javaCallback = null;
+        this.callback = null;
     }
 
     @Override

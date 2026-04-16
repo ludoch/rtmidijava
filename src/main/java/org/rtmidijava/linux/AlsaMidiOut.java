@@ -47,6 +47,9 @@ public class AlsaMidiOut extends RtMidiOut {
                     throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+
+                // Pro-Audio: Increase client pool for large Sysex
+                snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
             }
             
             snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
@@ -73,6 +76,9 @@ public class AlsaMidiOut extends RtMidiOut {
                     throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+
+                // Pro-Audio: Increase client pool for large Sysex
+                snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
             }
             
             snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));

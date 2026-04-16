@@ -48,6 +48,9 @@ public class JackApi {
     public static final MethodHandle jack_midi_event_write = downcall("jack_midi_event_write",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
+    public static final MethodHandle jack_get_client_name = downcall("jack_get_client_name",
+        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
     public static final MethodHandle jack_get_ports = downcall("jack_get_ports",
         FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
@@ -86,5 +89,16 @@ public class JackApi {
 
     private static MethodHandle downcall(String name, FunctionDescriptor desc) {
         return JACK.find(name).map(s -> LINKER.downcallHandle(s, desc)).orElse(null);
+    }
+
+    private static MemorySegment controlClient = MemorySegment.NULL;
+
+    public static synchronized MemorySegment getControlClient() {
+        if (controlClient.equals(MemorySegment.NULL)) {
+            try (Arena arena = Arena.ofConfined()) {
+                controlClient = (MemorySegment) jack_client_open.invokeExact(arena.allocateFrom("RtMidiJavaControl"), JackNoStartServer, MemorySegment.NULL);
+            } catch (Throwable t) {}
+        }
+        return controlClient;
     }
 }

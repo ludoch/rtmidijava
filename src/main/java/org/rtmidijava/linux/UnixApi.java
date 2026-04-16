@@ -21,6 +21,30 @@ public class UnixApi {
     public static final MethodHandle strerror = downcall("strerror",
         FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
+    public static final MethodHandle pipe = downcall("pipe",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    public static final MethodHandle read = downcall("read",
+        FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    public static final MethodHandle write = downcall("write",
+        FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    public static final MethodHandle close = downcall("close",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+
+    public static final MethodHandle poll = downcall("poll",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
+
+    // struct pollfd { int fd; short events; short revents; }
+    public static final StructLayout pollfd = MemoryLayout.structLayout(
+        ValueLayout.JAVA_INT.withName("fd"),
+        ValueLayout.JAVA_SHORT.withName("events"),
+        ValueLayout.JAVA_SHORT.withName("revents")
+    );
+
+    public static final short POLLIN = 0x0001;
+
     public static final int SCHED_OTHER = 0;
     public static final int SCHED_FIFO = 1;
     public static final int SCHED_RR = 2;
