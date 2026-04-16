@@ -44,6 +44,38 @@ public class WinMidiOut extends RtMidiOut {
         return "Windows MIDI Out Port " + portNumber;
     }
 
+    public int getManufacturerId(int portNumber) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment caps = arena.allocate(MIDIOUTCAPS);
+            int result = (int) midiOutGetDevCaps.invokeExact((long) portNumber, caps, (int) MIDIOUTCAPS.byteSize());
+            if (result == 0) {
+                return caps.get(ValueLayout.JAVA_SHORT, MIDIOUTCAPS.byteOffset(MemoryLayout.PathElement.groupElement("wMid"))) & 0xFFFF;
+            }
+        } catch (Throwable t) {}
+        return 0;
+    }
+
+    public int getProductId(int portNumber) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment caps = arena.allocate(MIDIOUTCAPS);
+            int result = (int) midiOutGetDevCaps.invokeExact((long) portNumber, caps, (int) MIDIOUTCAPS.byteSize());
+            if (result == 0) {
+                return caps.get(ValueLayout.JAVA_SHORT, MIDIOUTCAPS.byteOffset(MemoryLayout.PathElement.groupElement("wPid"))) & 0xFFFF;
+            }
+        } catch (Throwable t) {}
+        return 0;
+    }
+
+    private String getErrorText(int errorCode) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment buffer = arena.allocate(256 * 2);
+            int res = (int) midiOutGetErrorText.invokeExact(errorCode, buffer, 256);
+            return buffer.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
+        } catch (Throwable t) {
+            return "Unknown error (" + errorCode + ")";
+        }
+    }
+
     @Override
     public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
@@ -51,20 +83,19 @@ public class WinMidiOut extends RtMidiOut {
         try {
             MemorySegment phmo = instanceArena.allocate(ValueLayout.ADDRESS);
             int result = (int) midiOutOpen.invokeExact(phmo, portNumber, 0L, 0L, 0);
-            if (result == 0) {
-                hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
-                sysexHeader = instanceArena.allocate(MIDIHDR);
-                connected = true;
-            } else {
-                MemorySegment errBuf = instanceArena.allocate(256 * 2);
-                midiOutGetErrorText.invokeExact(result, errBuf, 256);
-                String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
+            if (result != 0) {
+                String errMsg = getErrorText(result);
                 instanceArena.close();
-                throw new RuntimeException("Could not open MIDI out port: " + errMsg + " (" + result + ")");
+                throw new org.rtmidijava.RtMidiException("WinMidiOut::openPort: " + errMsg, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
             }
+            hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+            sysexHeader = instanceArena.allocate(MIDIHDR);
+            connected = true;
+        } catch (org.rtmidijava.RtMidiException e) {
+            throw e;
         } catch (Throwable t) {
             if (instanceArena != null) instanceArena.close();
-            throw new RuntimeException(t);
+            throw new org.rtmidijava.RtMidiException("WinMidiOut::openPort: " + t.getMessage(), org.rtmidijava.RtMidiException.Type.SYSTEM_ERROR);
         }
     }
 
@@ -77,7 +108,7 @@ public class WinMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (connected && !hMidiOut.equals(MemorySegment.NULL)) {
             try {
-                midiOutClose.invokeExact(hMidiOut);
+                int res = (int) midiOutClose.invokeExact(hMidiOut);
             } catch (Throwable t) {
             }
             hMidiOut = MemorySegment.NULL;
@@ -109,7 +140,7 @@ public class WinMidiOut extends RtMidiOut {
                 msg |= (message.get(ValueLayout.JAVA_BYTE, i) & 0xFF) << (i * 8);
             }
             try {
-                midiOutShortMsg.invokeExact(hMidiOut, msg);
+                int res = (int) midiOutShortMsg.invokeExact(hMidiOut, msg);
             } catch (Throwable t) {}
         } else {
             // Sysex
@@ -118,13 +149,13 @@ public class WinMidiOut extends RtMidiOut {
                 sysexHeader.set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), message);
                 sysexHeader.set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), (int)len);
                 
-                midiOutPrepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
-                midiOutLongMsg.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
+                int resPrep = (int) midiOutPrepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
+                int resLong = (int) midiOutLongMsg.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
                 
                 while ((sysexHeader.get(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwFlags"))) & 1) == 0) {
                     Thread.onSpinWait();
                 }
-                midiOutUnprepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
+                int resUnprep = (int) midiOutUnprepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
             } catch (Throwable t) {}
         }
     }
