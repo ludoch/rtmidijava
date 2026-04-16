@@ -1,26 +1,23 @@
 # RtMidiJava
 
-A Pure Java 25 port of RtMidi using the Foreign Function & Memory (FFM) API.
+A Pure Java 25 port of [RtMidi](https://github.com/thestk/rtmidi) using the Foreign Function & Memory (FFM) API.
 
 ## Goal
-To provide a low-latency, zero-dependency (no native JNI binaries) MIDI library for Java, interfacing directly with OS-native MIDI APIs.
+To provide a **low-latency, zero-dependency, zero-GC** MIDI library for Java, interfacing directly with OS-native MIDI APIs without JNI binaries.
+
+## Key Features
+- **Zero-GC Architecture**: High-performance "Fast Path" using `MemorySegment` and `FastCallback` to eliminate Java heap allocations during MIDI processing.
+- **Pro-Audio Grade**:
+    - **Real-Time Priority**: Automated thread scheduling (Mach Time-Constraint on macOS, Time-Critical on Windows, SCHED_RR on Linux).
+    - **Shutdown Pipe**: ALSA implementation uses a wakeup pipe to ensure worker threads never get stuck in native blocking calls.
+    - **Sysex Reassembly**: Automatic stateful buffering for large Sysex messages on Windows and Linux.
+- **Pure Java 25**: No native libraries to compile or ship. Uses the modern FFM API (`java.lang.foreign`).
+- **Thread Safe**: All backends hardened with synchronization for concurrent port management and message sending.
 
 ## Supported Backends
-- **Windows**: WinMM (Full In/Out with Sysex)
-- **Linux**: ALSA and JACK (Full In/Out with Sysex)
-- **macOS**: CoreMIDI (Full In/Out with Sysex)
-
-## Requirements
-- Java 25+
-- Maven
-
-## How it works
-Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
-1. Load native libraries (`winmm.dll`, `libasound.so`, `libjack.so`, `CoreMIDI.framework`).
-2. Bind to native functions using `MethodHandle`s.
-3. Manage native memory using `Arena` and `MemorySegment`.
-4. Handle high-performance callbacks using `upcallStub`.
-5. Use `pthread_setschedparam` / `SetThreadPriority` for real-time responsiveness.
+- **Windows**: WinMM (Full In/Out with Sysex reassembly)
+- **Linux**: ALSA and JACK (Full In/Out with cached client discovery)
+- **macOS**: CoreMIDI (Full In/Out with nanosecond precision timestamps)
 
 ## Project Status
 
@@ -28,38 +25,42 @@ Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Port Enumeration** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Message Output** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Message Input** | 🚧 (Stability Proven) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) | ✅ |
-| **Port Names** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Sysex Support** | ✅ (Output) | ✅ | ✅ | ✅ | ✅ |
+| **Message Input** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Zero-GC Path** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Sysex Reassembly**| ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ | ✅ |
-| **Thread Priority** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Real-Time Priority**| ✅ | ✅ | ✅ | ✅ | ✅ |
 
-## Validation
-The library has been successfully validated on:
-- **Windows 11**: Verified with `loopMIDI` and `Ableton Push 2` (Out/Enumeration). Input upcall mechanism implemented and stabilized; reliable message receipt via hidden window is in progress.
-- **macOS**: (Implementation complete, verification pending)
-- **Linux**: (Implementation complete, verification pending)
-
-## Implementation Progress
-- [x] Core Multi-Backend Architecture
-- [x] Windows WinMM (Full Support)
-- [x] macOS CoreMIDI (Full Support)
-- [x] Linux ALSA (Full Support)
-- [x] Linux JACK (Full Support)
-- [x] Dummy Backend for Testing
-- [x] Zero-latency Message Filtering logic
-- [x] Real-time Thread Priority integration
-- [x] Sysex support across all platforms
-- [x] Virtual Ports support (where applicable)
+## Requirements
+- Java 25+
+- Maven
 
 ## Example Usage
 
+### Standard Callback (Easy)
 ```java
 RtMidiIn midiIn = RtMidiFactory.createDefaultIn();
 midiIn.openPort(0, "MyMonitor");
 midiIn.setCallback((timeStamp, message) -> {
-    System.out.println("Received: " + bytesToHex(message));
+    System.out.println("Received " + message.length + " bytes");
 });
 ```
 
-See `src/main/java/org/rtmidijava/examples/MidiMonitor.java` for a complete example.
+### High-Performance Zero-GC (Pro)
+```java
+midiIn.setFastCallback((timeStamp, segment) -> {
+    // Process MIDI data directly in native memory
+    byte status = segment.get(ValueLayout.JAVA_BYTE, 0);
+});
+```
+
+See `src/main/java/org/rtmidijava/examples/` for complete examples of `MidiMonitor` and `MidiSender`.
+
+## Continuous Integration
+This library is validated via an on-demand GitHub Action across:
+- `windows-latest`
+- `macos-latest`
+- `ubuntu-latest` (including ALSA and JACK setup)
+
+## Credits
+This is a Java implementation of the concepts and API established by the [RtMidi](https://github.com/thestk/rtmidi) C++ library.
