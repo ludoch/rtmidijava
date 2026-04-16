@@ -51,11 +51,11 @@ public class WinMidiOut extends RtMidiOut {
             MemorySegment phmo = instanceArena.allocate(ValueLayout.ADDRESS);
             int result = (int) midiOutOpen.invokeExact(phmo, portNumber, 0L, 0L, 0);
             if (result == 0) {
-                hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+                hMidiOut = phmo.get(ValueLayout.ADDRESS, 0);
                 connected = true;
             } else {
                 MemorySegment errBuf = instanceArena.allocate(256 * 2);
-                midiOutGetErrorText.invokeExact(result, errBuf, 256);
+                int resErr = (int) midiOutGetErrorText.invokeExact(result, errBuf, 256);
                 String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
                 instanceArena.close();
                 throw new RuntimeException("Could not open MIDI out port: " + errMsg + " (" + result + ")");
@@ -75,7 +75,7 @@ public class WinMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (connected && !hMidiOut.equals(MemorySegment.NULL)) {
             try {
-                midiOutClose.invokeExact(hMidiOut);
+                int res = (int) midiOutClose.invokeExact(hMidiOut);
             } catch (Throwable t) {
             }
             hMidiOut = MemorySegment.NULL;
@@ -97,7 +97,7 @@ public class WinMidiOut extends RtMidiOut {
                 msg |= (message[i] & 0xFF) << (i * 8);
             }
             try {
-                midiOutShortMsg.invokeExact(hMidiOut, msg);
+                int res = (int) midiOutShortMsg.invokeExact(hMidiOut, msg);
             } catch (Throwable t) {
             }
         } else {
@@ -109,18 +109,13 @@ public class WinMidiOut extends RtMidiOut {
                 header.set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), data);
                 header.set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), message.length);
                 
-                midiOutPrepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
-                midiOutLongMsg.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
+                int resPrep = (int) midiOutPrepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
+                int resLong = (int) midiOutLongMsg.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
                 
-                // Wait for MOM_DONE would be better, but for now we wait a bit or let it be
-                // In a real implementation, we should unprepare only when done.
-                // For simplified port, we might just leak or wait.
-                // Better: RtMidi usually waits or manages a queue of headers.
-                while ((header.get(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwFlags"))) & 1) == 0) {
-                    // MHDR_DONE = 1
-                    Thread.onSpinWait();
-                }
-                midiOutUnprepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
+                // For debugging: just wait a bit instead of spinning on flags
+                Thread.sleep(50);
+                
+                int resUnprep = (int) midiOutUnprepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
             } catch (Throwable t) {
             }
         }

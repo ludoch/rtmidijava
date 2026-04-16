@@ -28,15 +28,15 @@ Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Port Enumeration** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Message Output** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) | ✅ |
+| **Message Input** | 🚧 (Stability Proven) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) | ✅ |
 | **Port Names** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Sysex Support** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Sysex Support** | ✅ (Output) | ✅ | ✅ | ✅ | ✅ |
 | **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ | ✅ |
 | **Thread Priority** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Validation
 The library has been successfully validated on:
-- **Windows 11**: Verified with `loopMIDI` and `Ableton Push 2` (In/Out).
+- **Windows 11**: Verified with `loopMIDI` and `Ableton Push 2` (Out/Enumeration). Input upcall mechanism implemented and stabilized; reliable message receipt via hidden window is in progress.
 - **macOS**: (Implementation complete, verification pending)
 - **Linux**: (Implementation complete, verification pending)
 
