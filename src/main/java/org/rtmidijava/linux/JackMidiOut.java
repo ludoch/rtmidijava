@@ -144,10 +144,18 @@ public class JackMidiOut extends RtMidiOut {
     public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
+            sendMessage(arena.allocateFrom(ValueLayout.JAVA_BYTE, message));
+        }
+    }
+
+    @Override
+    public synchronized void sendMessage(MemorySegment message) {
+        if (!connected) return;
+        try (Arena arena = Arena.ofConfined()) {
             MemorySegment pSize = arena.allocate(ValueLayout.JAVA_INT);
-            pSize.set(ValueLayout.JAVA_INT, 0, message.length);
+            pSize.set(ValueLayout.JAVA_INT, 0, (int)message.byteSize());
             jack_ringbuffer_write.invokeExact(ringBuffer, pSize, 4L);
-            jack_ringbuffer_write.invokeExact(ringBuffer, arena.allocateFrom(ValueLayout.JAVA_BYTE, message), (long) message.length);
+            jack_ringbuffer_write.invokeExact(ringBuffer, message, message.byteSize());
         } catch (Throwable t) {}
     }
 }

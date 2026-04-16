@@ -8,6 +8,7 @@ import static org.rtmidijava.windows.WinMidiApi.*;
 public class WinMidiOut extends RtMidiOut {
     private MemorySegment hMidiOut = MemorySegment.NULL;
     private Arena instanceArena;
+    private MemorySegment sysexHeader;
 
     @Override
     public Api getCurrentApi() {
@@ -51,11 +52,12 @@ public class WinMidiOut extends RtMidiOut {
             MemorySegment phmo = instanceArena.allocate(ValueLayout.ADDRESS);
             int result = (int) midiOutOpen.invokeExact(phmo, portNumber, 0L, 0L, 0);
             if (result == 0) {
-                hMidiOut = phmo.get(ValueLayout.ADDRESS, 0);
+                hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+                sysexHeader = instanceArena.allocate(MIDIHDR);
                 connected = true;
             } else {
                 MemorySegment errBuf = instanceArena.allocate(256 * 2);
-                int resErr = (int) midiOutGetErrorText.invokeExact(result, errBuf, 256);
+                midiOutGetErrorText.invokeExact(result, errBuf, 256);
                 String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
                 instanceArena.close();
                 throw new RuntimeException("Could not open MIDI out port: " + errMsg + " (" + result + ")");
@@ -75,7 +77,7 @@ public class WinMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (connected && !hMidiOut.equals(MemorySegment.NULL)) {
             try {
-                int res = (int) midiOutClose.invokeExact(hMidiOut);
+                midiOutClose.invokeExact(hMidiOut);
             } catch (Throwable t) {
             }
             hMidiOut = MemorySegment.NULL;
@@ -90,34 +92,40 @@ public class WinMidiOut extends RtMidiOut {
     @Override
     public synchronized void sendMessage(byte[] message) {
         if (!connected || hMidiOut.equals(MemorySegment.NULL)) return;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment msgSegment = arena.allocateFrom(ValueLayout.JAVA_BYTE, message);
+            sendMessage(msgSegment);
+        }
+    }
+
+    @Override
+    public synchronized void sendMessage(MemorySegment message) {
+        if (!connected || hMidiOut.equals(MemorySegment.NULL)) return;
         
-        if (message.length <= 3 && (message[0] & 0xFF) < 0xF0) {
+        long len = message.byteSize();
+        if (len <= 3 && (message.get(ValueLayout.JAVA_BYTE, 0) & 0xFF) < 0xF0) {
             int msg = 0;
-            for (int i = 0; i < message.length; i++) {
-                msg |= (message[i] & 0xFF) << (i * 8);
+            for (int i = 0; i < len; i++) {
+                msg |= (message.get(ValueLayout.JAVA_BYTE, i) & 0xFF) << (i * 8);
             }
             try {
-                int res = (int) midiOutShortMsg.invokeExact(hMidiOut, msg);
-            } catch (Throwable t) {
-            }
+                midiOutShortMsg.invokeExact(hMidiOut, msg);
+            } catch (Throwable t) {}
         } else {
-            // Sysex or longer message
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment data = arena.allocateFrom(ValueLayout.JAVA_BYTE, message);
-                MemorySegment header = arena.allocate(MIDIHDR);
-                header.fill((byte) 0);
-                header.set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), data);
-                header.set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), message.length);
+            // Sysex
+            try {
+                sysexHeader.fill((byte) 0);
+                sysexHeader.set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), message);
+                sysexHeader.set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), (int)len);
                 
-                int resPrep = (int) midiOutPrepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
-                int resLong = (int) midiOutLongMsg.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
+                midiOutPrepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
+                midiOutLongMsg.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
                 
-                // For debugging: just wait a bit instead of spinning on flags
-                Thread.sleep(50);
-                
-                int resUnprep = (int) midiOutUnprepareHeader.invokeExact(hMidiOut, header, (int) MIDIHDR.byteSize());
-            } catch (Throwable t) {
-            }
+                while ((sysexHeader.get(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwFlags"))) & 1) == 0) {
+                    Thread.onSpinWait();
+                }
+                midiOutUnprepareHeader.invokeExact(hMidiOut, sysexHeader, (int) MIDIHDR.byteSize());
+            } catch (Throwable t) {}
         }
     }
 }

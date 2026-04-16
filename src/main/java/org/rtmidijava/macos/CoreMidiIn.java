@@ -98,9 +98,7 @@ public class CoreMidiIn extends RtMidiIn {
             short length = pktList.get(ValueLayout.JAVA_SHORT, offset + 8);
             
             if (length > 0) {
-                byte[] data = new byte[length];
-                MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
-                onIncomingMessage(CoreMidiUtils.convertTimestamp(timeStamp), data);
+                onIncomingMessage(CoreMidiUtils.convertTimestamp(timeStamp), pktList.asSlice(offset + 10, length));
             }
             
             offset += 10 + length;

@@ -26,5 +26,6 @@ public class WindowsMidiServices {
         @Override public void openVirtualPort(String portName) {}
         @Override public void closePort() { connected = false; }
         @Override public void sendMessage(byte[] message) {}
+        @Override public void sendMessage(java.lang.foreign.MemorySegment message) {}
     }
 }

@@ -16,21 +16,22 @@ public class WinMidiIn extends RtMidiIn {
     private static final int RT_SYSEX_BUFFER_COUNT = 4;
     private MemorySegment[] sysexBuffers = new MemorySegment[RT_SYSEX_BUFFER_COUNT];
     private MemorySegment upcallStub;
+    private final java.io.ByteArrayOutputStream sysexBuffer = new java.io.ByteArrayOutputStream();
 
     public WinMidiIn() {
         try {
             MethodHandle onMidiInProc = MethodHandles.lookup().findVirtual(WinMidiIn.class, "midiInProc",
-                    MethodType.methodType(void.class, MemorySegment.class, int.class, int.class, int.class, int.class));
+                    MethodType.methodType(void.class, MemorySegment.class, int.class, long.class, long.class, long.class));
             onMidiInProc = onMidiInProc.bindTo(this);
             upcallStub = LINKER.upcallStub(onMidiInProc,
-                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT),
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG),
                     Arena.global());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    private synchronized void midiInProc(MemorySegment hMidiIn, int wMsg, int dwInstance, int dwParam1, int dwParam2) {
+    private synchronized void midiInProc(MemorySegment hMidiIn, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
         if (!connected) return;
         double timestamp = (dwParam2 - startTime) / 1000.0;
         if (wMsg == MIM_DATA) {
@@ -43,7 +44,31 @@ public class WinMidiIn extends RtMidiIn {
             } else {
                 msg = new byte[]{status, data1};
             }
-            onIncomingMessage(timestamp, msg);
+            try (Arena local = Arena.ofConfined()) {
+                onIncomingMessage(timestamp, local.allocateFrom(ValueLayout.JAVA_BYTE, msg));
+            }
+        } else if (wMsg == MIM_LONGDATA) {
+            MemorySegment header = MemorySegment.ofAddress(dwParam1).reinterpret(MIDIHDR.byteSize());
+            int bytesRecorded = header.get(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBytesRecorded")));
+            if (bytesRecorded > 0) {
+                MemorySegment dataPtr = header.get(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")));
+                MemorySegment data = dataPtr.reinterpret(bytesRecorded);
+                
+                try {
+                    sysexBuffer.write(data.toArray(ValueLayout.JAVA_BYTE));
+                    if (data.get(ValueLayout.JAVA_BYTE, bytesRecorded - 1) == (byte)0xF7) {
+                        byte[] full = sysexBuffer.toByteArray();
+                        sysexBuffer.reset();
+                        try (Arena local = Arena.ofConfined()) {
+                            onIncomingMessage(timestamp, local.allocateFrom(ValueLayout.JAVA_BYTE, full));
+                        }
+                    }
+                } catch (Exception e) {}
+            }
+            // Re-queue the buffer
+            try {
+                midiInAddBuffer.invokeExact(hMidiIn, header, (int) MIDIHDR.byteSize());
+            } catch (Throwable t) {}
         }
     }
 
@@ -87,10 +112,9 @@ public class WinMidiIn extends RtMidiIn {
         instanceArena = Arena.ofShared();
         try {
             MemorySegment phmi = instanceArena.allocate(ValueLayout.ADDRESS);
-            // CALLBACK_FUNCTION = 0x30000
             int result = (int) midiInOpen.invokeExact(phmi, portNumber, upcallStub, 0L, CALLBACK_FUNCTION);
             if (result == 0) {
-                hMidiIn = phmi.get(ValueLayout.ADDRESS, 0);
+                hMidiIn = phmi.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 
                 // Allocate and add Sysex buffers
                 for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
@@ -100,19 +124,19 @@ public class WinMidiIn extends RtMidiIn {
                     sysexBuffers[i].set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), data);
                     sysexBuffers[i].set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), RT_SYSEX_BUFFER_SIZE);
                     
-                    int res1 = (int) midiInPrepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
-                    int res2 = (int) midiInAddBuffer.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
+                    midiInPrepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
+                    midiInAddBuffer.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
                 }
 
                 startTime = System.currentTimeMillis();
-                int res3 = (int) midiInStart.invokeExact(hMidiIn);
+                midiInStart.invokeExact(hMidiIn);
                 try {
                     org.rtmidijava.utils.ThreadUtils.makeRealTime();
                 } catch (Throwable t) {}
                 connected = true;
             } else {
                 MemorySegment errBuf = instanceArena.allocate(256 * 2);
-                int resErr = (int) midiInGetErrorText.invokeExact(result, errBuf, 256);
+                midiInGetErrorText.invokeExact(result, errBuf, 256);
                 String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
                 instanceArena.close();
                 throw new RuntimeException("Could not open MIDI in port: " + errMsg + " (" + result + ")");
@@ -132,11 +156,11 @@ public class WinMidiIn extends RtMidiIn {
     public synchronized void closePort() {
         if (connected && !hMidiIn.equals(MemorySegment.NULL)) {
             try {
-                int resStop = (int) midiInStop.invokeExact(hMidiIn);
+                midiInStop.invokeExact(hMidiIn);
                 for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
-                    int resUnprep = (int) midiInUnprepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
+                    midiInUnprepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
                 }
-                int resClose = (int) midiInClose.invokeExact(hMidiIn);
+                midiInClose.invokeExact(hMidiIn);
             } catch (Throwable t) {
             }
             hMidiIn = MemorySegment.NULL;

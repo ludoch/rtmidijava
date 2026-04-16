@@ -38,11 +38,10 @@ public class JackMidiIn extends RtMidiIn {
                 jack_midi_event_get.invokeExact(event, buffer, i);
                 int len = (int) event.get(ValueLayout.JAVA_LONG, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("size")));
                 MemorySegment dataPtr = event.get(ValueLayout.ADDRESS, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("buffer")));
-                byte[] data = dataPtr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE);
                 
                 synchronized(this) {
                     if (connected) {
-                        onIncomingMessage(System.nanoTime() / 1_000_000_000.0, data);
+                        onIncomingMessage(System.nanoTime() / 1_000_000_000.0, dataPtr.reinterpret(len));
                     }
                 }
             }

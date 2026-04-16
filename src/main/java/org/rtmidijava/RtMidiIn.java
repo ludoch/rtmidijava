@@ -18,6 +18,7 @@ public abstract class RtMidiIn extends RtMidi {
     protected boolean ignoreTime = true;
     protected boolean ignoreSense = true;
     protected Callback callback;
+    protected FastCallback fastCallback;
 
     /**
      * Functional interface for MIDI input callbacks.
@@ -32,11 +33,33 @@ public abstract class RtMidiIn extends RtMidi {
     }
 
     /**
+     * High-performance functional interface for MIDI input callbacks.
+     * Provides a MemorySegment to avoid byte[] allocations.
+     */
+    public interface FastCallback {
+        /**
+         * Called when a new MIDI message is received.
+         * @param timeStamp the time in seconds since the port was opened.
+         * @param message the segment containing the raw MIDI bytes.
+         */
+        void onMessage(double timeStamp, java.lang.foreign.MemorySegment message);
+    }
+
+    /**
      * Sets the callback function to be called when a new message arrives.
      * Setting a callback disables the internal message queue.
      */
     public void setCallback(Callback callback) {
         this.callback = callback;
+        this.fastCallback = null;
+    }
+
+    /**
+     * Sets a high-performance zero-copy callback.
+     */
+    public void setFastCallback(FastCallback fastCallback) {
+        this.fastCallback = fastCallback;
+        this.callback = null;
     }
 
     /**
@@ -44,6 +67,7 @@ public abstract class RtMidiIn extends RtMidi {
      */
     public void cancelCallback() {
         this.callback = null;
+        this.fastCallback = null;
     }
 
     /**
@@ -79,17 +103,28 @@ public abstract class RtMidiIn extends RtMidi {
      * Internal method called by backends when a message arrives.
      */
     protected void onIncomingMessage(double timeStamp, byte[] data) {
-        if (data.length > 0) {
-            byte status = data[0];
+        try (java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined()) {
+            onIncomingMessage(timeStamp, arena.allocateFrom(java.lang.foreign.ValueLayout.JAVA_BYTE, data));
+        }
+    }
+
+    /**
+     * Internal method called by backends when a message arrives in a MemorySegment.
+     */
+    protected void onIncomingMessage(double timeStamp, java.lang.foreign.MemorySegment data) {
+        if (data.byteSize() > 0) {
+            byte status = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
             if (ignoreSysex && (status == (byte)0xF0 || status == (byte)0xF7)) return;
             if (ignoreTime && (status >= (byte)0xF8 && status <= (byte)0xFA)) return;
             if (ignoreSense && status == (byte)0xFE) return;
         }
 
-        if (callback != null) {
-            callback.onMessage(timeStamp, data);
+        if (fastCallback != null) {
+            fastCallback.onMessage(timeStamp, data);
+        } else if (callback != null) {
+            callback.onMessage(timeStamp, data.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE));
         } else {
-            queue.add(new MidiMessage(timeStamp, data));
+            queue.add(new MidiMessage(timeStamp, data.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE)));
             if (queue.size() > 1024) queue.poll();
         }
     }

@@ -144,7 +144,10 @@ public class AlsaMidiIn extends RtMidiIn {
                         if (midi != null) {
                             synchronized(this) {
                                 if (connected) {
-                                    onIncomingMessage(System.nanoTime() / 1_000_000_000.0, midi);
+                                    // Use the segment-based call to avoid byte[] duplication in base class if using FastCallback
+                                    try (Arena local = Arena.ofConfined()) {
+                                        onIncomingMessage(System.nanoTime() / 1_000_000_000.0, local.allocateFrom(ValueLayout.JAVA_BYTE, midi));
+                                    }
                                 }
                             }
                         }

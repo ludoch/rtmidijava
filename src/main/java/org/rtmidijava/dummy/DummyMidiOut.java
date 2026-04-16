@@ -37,4 +37,9 @@ public class DummyMidiOut extends RtMidiOut {
     public void sendMessage(byte[] message) {
         // Do nothing
     }
+
+    @Override
+    public void sendMessage(java.lang.foreign.MemorySegment message) {
+        // Do nothing
+    }
 }

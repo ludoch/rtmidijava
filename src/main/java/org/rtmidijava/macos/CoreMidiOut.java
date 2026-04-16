@@ -8,15 +8,7 @@ import java.lang.invoke.MethodHandle;
 public class CoreMidiOut extends RtMidiOut {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup CORE_MIDI = SymbolLookup.libraryLookup("/System/Library/Frameworks/CoreMIDI.framework/Versions/Current/CoreMIDI", Arena.global());
-    private static final SymbolLookup CORE_FOUNDATION = SymbolLookup.libraryLookup("/System/Library/Frameworks/CoreFoundation.framework/Versions/Current/CoreFoundation", Arena.global());
 
-    // CoreFoundation Handles
-    private static final MethodHandle cfRelease = LINKER.downcallHandle(
-            CORE_FOUNDATION.find("CFRelease").get(),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
-    );
-
-    // CoreMIDI Handles
     private static final MethodHandle midiClientCreate = LINKER.downcallHandle(
             CORE_MIDI.find("MIDIClientCreate").get(),
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
@@ -52,14 +44,6 @@ public class CoreMidiOut extends RtMidiOut {
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
     );
 
-    private static MemorySegment kMIDIPropertyName;
-
-    static {
-        try {
-            kMIDIPropertyName = CORE_MIDI.find("kMIDIPropertyName").get().reinterpret(8).get(ValueLayout.ADDRESS, 0);
-        } catch (Exception e) {}
-    }
-
     private int client = 0;
     private int port = 0;
     private int destination = 0;
@@ -89,13 +73,9 @@ public class CoreMidiOut extends RtMidiOut {
         try (Arena arena = Arena.ofConfined()) {
             int dest = (int) midiGetDestination.invokeExact((long) portNumber);
             if (dest == 0) return "Unknown Port";
-            
+
             MemorySegment pString = arena.allocate(ValueLayout.ADDRESS);
-            MemorySegment propName = kMIDIPropertyName;
-            if (propName == null || propName.address() == 0) {
-                propName = CoreMidiUtils.createCFString("name", arena);
-            }
-            int result = (int) midiObjectGetStringProperty.invokeExact(dest, propName, pString);
+            int result = (int) midiObjectGetStringProperty.invokeExact(dest, CoreMidiUtils.kMIDIPropertyName, pString);
             if (result == 0) {
                 MemorySegment cfStr = pString.get(ValueLayout.ADDRESS, 0);
                 String name = CoreMidiUtils.cfStringToString(cfStr);
@@ -182,21 +162,30 @@ public class CoreMidiOut extends RtMidiOut {
     public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
-            int packetSize = 8 + 2 + message.length;
+            sendMessage(arena.allocateFrom(ValueLayout.JAVA_BYTE, message));
+        }
+    }
+
+    @Override
+    public synchronized void sendMessage(MemorySegment message) {
+        if (!connected) return;
+        try (Arena arena = Arena.ofConfined()) {
+            int packetSize = 8 + 2 + (int)message.byteSize();
             MemorySegment packetList = arena.allocate(8 + packetSize);
-            packetList.set(ValueLayout.JAVA_INT, 0, 1);
-            packetList.set(ValueLayout.JAVA_LONG, 8, 0L);
-            packetList.set(ValueLayout.JAVA_SHORT, 16, (short) message.length);
-            for (int i = 0; i < message.length; i++) {
-                packetList.set(ValueLayout.JAVA_BYTE, 18 + i, message[i]);
-            }
-            
+            packetList.set(ValueLayout.JAVA_INT, 0, 1); // numPackets
+
+            MemorySegment packet = packetList.asSlice(4);
+            packet.set(ValueLayout.JAVA_LONG, 0, 0L); // timestamp (0 = now)
+            packet.set(ValueLayout.JAVA_SHORT, 8, (short) message.byteSize());
+            MemorySegment.copy(message, 0, packet, 10, message.byteSize());
+
             if (port != 0) {
                 midiSend.invokeExact(port, destination, packetList);
             } else {
+                // Virtual port
                 MethodHandle midiReceived = LINKER.downcallHandle(
-                        CORE_MIDI.find("MIDIReceived").get(),
-                        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)
+                    CORE_MIDI.find("MIDIReceived").get(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)
                 );
                 midiReceived.invokeExact(destination, packetList);
             }
