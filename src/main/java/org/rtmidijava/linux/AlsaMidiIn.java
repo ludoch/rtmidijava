@@ -112,7 +112,7 @@ public class AlsaMidiIn extends RtMidiIn {
 
     private void startWorker() {
         worker = new Thread(() -> {
-            UnixApi.setThreadPriority(99);
+            org.rtmidijava.utils.ThreadUtils.makeRealTime();
             try (Arena arena = Arena.ofShared()) {
                 int alsaCount = (int) snd_seq_poll_descriptors_count.invokeExact(seqHandle, UnixApi.POLLIN);
                 int totalCount = alsaCount + 1;

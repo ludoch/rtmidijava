@@ -117,6 +117,7 @@ public class WinMidiIn extends RtMidiIn {
 
                 startTime = System.currentTimeMillis();
                 midiInStart.invokeExact(hMidiIn);
+                org.rtmidijava.utils.ThreadUtils.makeRealTime();
                 connected = true;
             } else {
                 MemorySegment errBuf = instanceArena.allocate(256 * 2);
