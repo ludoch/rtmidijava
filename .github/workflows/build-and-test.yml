@@ -26,6 +26,15 @@ jobs:
         distribution: 'oracle'
         cache: 'maven'
 
+    - name: Install ALSA (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libasound2-dev
+        # Attempt to load virtual MIDI module. This might fail on some CI environments
+        # but often works on standard GitHub Hosted Runners.
+        sudo modprobe snd-virmidi || echo "Could not load snd-virmidi, skipping kernel module setup"
+
     - name: Build with Maven
       run: mvn -B package --file pom.xml
 
