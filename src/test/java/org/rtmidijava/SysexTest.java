@@ -45,7 +45,7 @@ public class SysexTest {
             return;
         }
 
-        byte[] msgToSend = new byte[]{(byte) 0x90, 0x3C, 0x7F};
+        byte[] sysexToSend = new byte[]{(byte) 0xF0, 0x7D, 0x01, 0x02, 0x03, (byte) 0xF7};
         AtomicReference<byte[]> receivedData = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
 
@@ -60,14 +60,14 @@ public class SysexTest {
         // Give it a moment to settle
         Thread.sleep(100);
 
-        midiOut.sendMessage(msgToSend);
+        midiOut.sendMessage(sysexToSend);
 
         boolean received = latch.await(2, TimeUnit.SECONDS);
 
         midiIn.closePort();
         midiOut.closePort();
 
-        assertTrue(received, "Message not received");
-        assertArrayEquals(msgToSend, receivedData.get(), "Received message does not match sent message");
+        assertTrue(received, "Sysex message not received");
+        assertArrayEquals(sysexToSend, receivedData.get(), "Received sysex does not match sent sysex");
     }
 }

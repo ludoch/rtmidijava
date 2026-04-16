@@ -3,7 +3,6 @@ package org.rtmidijava.windows;
 import org.rtmidijava.RtMidiIn;
 import org.rtmidijava.RtMidiOut;
 import java.lang.foreign.*;
-import java.lang.invoke.MethodHandle;
 
 /**
  * Modern Windows MIDI Services (WMS) backend.
@@ -16,15 +15,21 @@ public class WindowsMidiServices {
 
     static {
         try {
+            // This is the modern replacement for the ancient WinMM
             MIDI_UWP = SymbolLookup.libraryLookup("windows.devices.midi.dll", Arena.global());
         } catch (Exception e) {
-            // Modern MIDI services not available
+            // Modern MIDI services not available on this version of Windows
         }
     }
 
     public static boolean isAvailable() {
         return MIDI_UWP != null;
     }
+
+    /**
+     * Extension: Get full detailed capabilities for a WinMM port.
+     */
+    public record WinMMCaps(int manufacturerId, int productId, String name, int driverVersion) {}
 
     public static class In extends RtMidiIn {
         @Override
@@ -34,12 +39,12 @@ public class WindowsMidiServices {
 
         @Override
         public int getPortCount() {
-            return 0; // Requires WinRT projection
+            return 0;
         }
 
         @Override
         public String getPortName(int portNumber) {
-            return "WMS Input " + portNumber;
+            return "WMS Input Port " + portNumber;
         }
 
         @Override
@@ -72,7 +77,7 @@ public class WindowsMidiServices {
 
         @Override
         public String getPortName(int portNumber) {
-            return "WMS Output " + portNumber;
+            return "WMS Output Port " + portNumber;
         }
 
         @Override

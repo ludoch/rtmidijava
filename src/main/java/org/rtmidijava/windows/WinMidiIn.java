@@ -179,11 +179,11 @@ public class WinMidiIn extends RtMidiIn {
             
             sysexNativeBuffer = instanceArena.allocate(8192);
 
+            // System.out.println("WinMidiIn::openPort: Starting device...");
             startTime = System.currentTimeMillis();
             int resStart = (int) midiInStart.invokeExact(hMidiIn);
             if (resStart != 0) throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error starting input device (" + resStart + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
 
-            /*
             // Allocate and add Sysex buffers
             for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
                 sysexBuffers[i] = instanceArena.allocate(MIDIHDR);
@@ -194,12 +194,14 @@ public class WinMidiIn extends RtMidiIn {
                 sysexBuffers[i].set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwFlags")), 0);
                 
                 int resPrep = (int) midiInPrepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
-                if (resPrep != 0) throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error preparing sysex header (" + resPrep + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
-                
-                int resAdd = (int) midiInAddBuffer.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
-                if (resAdd != 0) throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error adding sysex buffer (" + resAdd + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
+                if (resPrep == 0) {
+                    // System.out.println("WinMidiIn::openPort: Sysex buffer " + i + " prepared.");
+                    int resAdd = (int) midiInAddBuffer.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
+                    if (resAdd != 0) {
+                        // System.out.println("WinMidiIn::openPort: Warning - Error adding sysex buffer " + i + " (" + resAdd + ")");
+                    }
+                }
             }
-            */
 
             try {
                 org.rtmidijava.utils.ThreadUtils.makeRealTime();
