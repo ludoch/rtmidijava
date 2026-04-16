@@ -42,6 +42,8 @@ public class RtMidiTest {
         final byte[][] receivedData = new byte[1][];
         try {
             midiIn.openVirtualPort("Test Virtual In");
+            // Settle time for OS MIDI server
+            Thread.sleep(500);
         } catch (RuntimeException e) {
             String msg = e.getMessage();
             if (e.getCause() != null) msg += " " + e.getCause().getMessage();
@@ -71,11 +73,16 @@ public class RtMidiTest {
         if (outPort != -1) {
             midiOut.openPort(outPort, "Test Out");
             byte[] msg = new byte[]{(byte)0x90, 0x3C, 0x7F};
+            System.out.println("Sending message: " + bytesToHex(msg));
             midiOut.sendMessage(msg);
             
-            // Wait for callback
-            Thread.sleep(500);
+            // Wait for callback - increased for CI environments
+            for (int i = 0; i < 20; i++) {
+                if (receivedData[0] != null) break;
+                Thread.sleep(100);
+            }
             
+            assertNotNull(receivedData[0], "Message not received within timeout");
             assertArrayEquals(msg, receivedData[0]);
             midiOut.closePort();
         } else {

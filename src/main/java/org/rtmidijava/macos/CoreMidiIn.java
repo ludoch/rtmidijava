@@ -89,13 +89,20 @@ public class CoreMidiIn extends RtMidiIn {
         if (!connected) return;
         int numPackets = pktList.get(ValueLayout.JAVA_INT, 0);
         long offset = 4; // Skip numPackets (uint32)
+        
         for (int i = 0; i < numPackets; i++) {
-            if (offset % 8 != 0) offset += (8 - (offset % 8));
+            // MIDIPacket alignment is usually 4 bytes in the list on both Intel and ARM
+            if (offset % 4 != 0) offset += (4 - (offset % 4));
+            
             long timeStamp = pktList.get(ValueLayout.JAVA_LONG, offset);
             short length = pktList.get(ValueLayout.JAVA_SHORT, offset + 8);
-            byte[] data = new byte[length];
-            MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
-            onIncomingMessage(CoreMidiUtils.convertTimestamp(timeStamp), data); 
+            
+            if (length > 0) {
+                byte[] data = new byte[length];
+                MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
+                onIncomingMessage(CoreMidiUtils.convertTimestamp(timeStamp), data);
+            }
+            
             offset += 10 + length;
         }
     }
