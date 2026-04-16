@@ -47,6 +47,9 @@ public class CoreMidiOut extends RtMidiOut {
     private int client = 0;
     private int port = 0;
     private int destination = 0;
+    private Arena coreMidiArena;
+    private MemorySegment preallocatedPacketList;
+    private static final int PACKET_LIST_SIZE = 1024;
 
     @Override
     public Api getCurrentApi() {
@@ -89,16 +92,19 @@ public class CoreMidiOut extends RtMidiOut {
     @Override
     public synchronized void openPort(int portNumber, String portName) {
         if (connected) closePort();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", arena);
+        coreMidiArena = Arena.ofShared();
+        try {
+            preallocatedPacketList = coreMidiArena.allocate(PACKET_LIST_SIZE);
+            
+            MemorySegment pClient = coreMidiArena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", coreMidiArena);
             int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
             checkStatus(status, "MIDIClientCreate failed");
             client = pClient.get(ValueLayout.JAVA_INT, 0);
             CoreMidiUtils.release(cfClientName);
 
-            MemorySegment pPort = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, arena);
+            MemorySegment pPort = coreMidiArena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, coreMidiArena);
             status = (int) midiOutputPortCreate.invokeExact(client, cfPortName, pPort);
             checkStatus(status, "MIDIOutputPortCreate failed");
             port = pPort.get(ValueLayout.JAVA_INT, 0);
@@ -117,16 +123,19 @@ public class CoreMidiOut extends RtMidiOut {
     @Override
     public synchronized void openVirtualPort(String portName) {
         if (connected) closePort();
-        try (Arena arena = Arena.ofConfined()) {
-             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
-             MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", arena);
+        coreMidiArena = Arena.ofShared();
+        try {
+             preallocatedPacketList = coreMidiArena.allocate(PACKET_LIST_SIZE);
+             
+             MemorySegment pClient = coreMidiArena.allocate(ValueLayout.JAVA_INT);
+             MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", coreMidiArena);
              int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
              checkStatus(status, "MIDIClientCreate failed");
              client = pClient.get(ValueLayout.JAVA_INT, 0);
              CoreMidiUtils.release(cfClientName);
 
-             MemorySegment pSrc = arena.allocate(ValueLayout.JAVA_INT);
-             MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, arena);
+             MemorySegment pSrc = coreMidiArena.allocate(ValueLayout.JAVA_INT);
+             MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, coreMidiArena);
              MethodHandle midiSourceCreate = LINKER.downcallHandle(
                      CORE_MIDI.find("MIDISourceCreate").get(),
                      FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
@@ -155,6 +164,10 @@ public class CoreMidiOut extends RtMidiOut {
             port = 0;
             destination = 0;
         }
+        if (coreMidiArena != null) {
+            coreMidiArena.close();
+            coreMidiArena = null;
+        }
         connected = false;
     }
 
@@ -169,26 +182,41 @@ public class CoreMidiOut extends RtMidiOut {
     @Override
     public synchronized void sendMessage(MemorySegment message) {
         if (!connected) return;
-        try (Arena arena = Arena.ofConfined()) {
-            int packetSize = 8 + 2 + (int)message.byteSize();
-            MemorySegment packetList = arena.allocate(8 + packetSize);
-            packetList.set(ValueLayout.JAVA_INT, 0, 1); // numPackets
-
-            MemorySegment packet = packetList.asSlice(4);
-            packet.set(ValueLayout.JAVA_LONG, 0, 0L); // timestamp (0 = now)
-            packet.set(ValueLayout.JAVA_SHORT, 8, (short) message.byteSize());
-            MemorySegment.copy(message, 0, packet, 10, message.byteSize());
-
-            if (port != 0) {
-                midiSend.invokeExact(port, destination, packetList);
+        try {
+            long msgLen = message.byteSize();
+            int packetSize = 8 + 2 + (int)msgLen;
+            MemorySegment packetList;
+            
+            if (8 + packetSize <= PACKET_LIST_SIZE) {
+                packetList = preallocatedPacketList;
             } else {
-                // Virtual port
-                MethodHandle midiReceived = LINKER.downcallHandle(
-                    CORE_MIDI.find("MIDIReceived").get(),
-                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)
-                );
-                midiReceived.invokeExact(destination, packetList);
+                // Fallback for huge sysex
+                try (Arena local = Arena.ofConfined()) {
+                    packetList = local.allocate(8 + packetSize);
+                    sendInternal(packetList, message);
+                    return;
+                }
             }
+
+            sendInternal(packetList, message);
         } catch (Throwable t) {}
+    }
+
+    private void sendInternal(MemorySegment packetList, MemorySegment message) throws Throwable {
+        packetList.set(ValueLayout.JAVA_INT, 0, 1); // numPackets
+        MemorySegment packet = packetList.asSlice(4);
+        packet.set(ValueLayout.JAVA_LONG, 0, 0L); // timestamp
+        packet.set(ValueLayout.JAVA_SHORT, 8, (short) message.byteSize());
+        MemorySegment.copy(message, 0, packet, 10, message.byteSize());
+
+        if (port != 0) {
+            midiSend.invokeExact(port, destination, packetList);
+        } else {
+            MethodHandle midiReceived = LINKER.downcallHandle(
+                CORE_MIDI.find("MIDIReceived").get(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)
+            );
+            midiReceived.invokeExact(destination, packetList);
+        }
     }
 }

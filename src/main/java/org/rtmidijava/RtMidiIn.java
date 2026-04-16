@@ -65,11 +65,21 @@ public abstract class RtMidiIn extends RtMidi {
     /**
      * Returns the next message from the internal off-heap ring buffer.
      * Note: This implementation allocates a small byte[] to return the data.
-     * For Zero-GC, use setFastCallback instead.
+     * For Zero-GC, use setFastCallback or the getMessage(byte[], double[]) instead.
      */
     public byte[] getMessage() {
         MidiMessage msg = getMessageWithTimestamp();
-        return msg != null ? msg.data : null;
+        return msg != null ? msg.data() : null;
+    }
+
+    /**
+     * Non-allocating way to poll for messages.
+     * @param target the array to fill with MIDI data.
+     * @param timeStampOut a 1-element array to receive the timestamp.
+     * @return the number of bytes read, or -1 if no message.
+     */
+    public int getMessage(byte[] target, double[] timeStampOut) {
+        return ringBuffer.read(target, timeStampOut);
     }
 
     /**
@@ -80,7 +90,7 @@ public abstract class RtMidiIn extends RtMidi {
         double[] tsOut = new double[1];
         int len = ringBuffer.read(data, tsOut);
         if (len < 0) return null;
-        
+
         byte[] actual = new byte[len];
         System.arraycopy(data, 0, actual, 0, len);
         return new MidiMessage(tsOut[0], actual);

@@ -12,6 +12,9 @@ public class JackMidiIn extends RtMidiIn {
     private MemorySegment client = MemorySegment.NULL;
     private MemorySegment port = MemorySegment.NULL;
     private MemorySegment processStub;
+    private Arena jackArena;
+    private MemorySegment preallocatedEvent;
+    private MethodHandle getCountHandle;
 
     public JackMidiIn() {
         try {
@@ -28,16 +31,14 @@ public class JackMidiIn extends RtMidiIn {
 
     private int process(int nframes, MemorySegment arg) {
         if (port.equals(MemorySegment.NULL)) return 0;
-        try (Arena arena = Arena.ofConfined()) {
+        try {
             MemorySegment buffer = (MemorySegment) jack_port_get_buffer.invokeExact(port, nframes);
-            
-            MemorySegment event = arena.allocate(jack_midi_event_t);
-            int count = (int) jack_midi_get_event_count.invokeExact(buffer);
+            int count = (int) getCountHandle.invokeExact(buffer);
 
             for (int i = 0; i < count; i++) {
-                jack_midi_event_get.invokeExact(event, buffer, i);
-                int len = (int) event.get(ValueLayout.JAVA_LONG, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("size")));
-                MemorySegment dataPtr = event.get(ValueLayout.ADDRESS, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("buffer")));
+                jack_midi_event_get.invokeExact(preallocatedEvent, buffer, i);
+                int len = (int) preallocatedEvent.get(ValueLayout.JAVA_LONG, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("size")));
+                MemorySegment dataPtr = preallocatedEvent.get(ValueLayout.ADDRESS, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("buffer")));
                 
                 synchronized(this) {
                     if (connected) {
@@ -72,9 +73,14 @@ public class JackMidiIn extends RtMidiIn {
 
     private void initClient() {
         if (client.equals(MemorySegment.NULL)) {
-            try (Arena arena = Arena.ofConfined()) {
-                client = (MemorySegment) jack_client_open.invokeExact(arena.allocateFrom("RtMidiJava In"), JackNoStartServer, MemorySegment.NULL);
+            try {
+                jackArena = Arena.ofShared();
+                client = (MemorySegment) jack_client_open.invokeExact(jackArena.allocateFrom("RtMidiJava In"), JackNoStartServer, MemorySegment.NULL);
                 if (client.equals(MemorySegment.NULL)) throw new RuntimeException("JACK server not running?");
+                
+                preallocatedEvent = jackArena.allocate(jack_midi_event_t);
+                getCountHandle = LINKER.downcallHandle(JACK.find("jack_midi_get_event_count").get(), FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+                
                 jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
                 jack_activate.invokeExact(client);
             } catch (Throwable t) {
@@ -134,6 +140,10 @@ public class JackMidiIn extends RtMidiIn {
             } catch (Throwable t) {}
             client = MemorySegment.NULL;
             port = MemorySegment.NULL;
+        }
+        if (jackArena != null) {
+            jackArena.close();
+            jackArena = null;
         }
         connected = false;
     }
