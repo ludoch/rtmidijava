@@ -17,6 +17,7 @@ public class RtMidiFactory {
             case LINUX_JACK -> new JackMidiIn();
             case MACOS_CORE -> new CoreMidiIn();
             case WINDOWS_MM -> new WinMidiIn();
+            case RTMIDI_DUMMY -> new org.rtmidijava.dummy.DummyMidiIn();
             default -> createDefaultIn();
         };
     }
@@ -27,6 +28,7 @@ public class RtMidiFactory {
             case LINUX_JACK -> new JackMidiOut();
             case MACOS_CORE -> new CoreMidiOut();
             case WINDOWS_MM -> new WinMidiOut();
+            case RTMIDI_DUMMY -> new org.rtmidijava.dummy.DummyMidiOut();
             default -> createDefaultOut();
         };
     }

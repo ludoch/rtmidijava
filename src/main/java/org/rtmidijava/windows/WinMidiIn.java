@@ -119,8 +119,11 @@ public class WinMidiIn extends RtMidiIn {
                 midiInStart.invokeExact(hMidiIn);
                 connected = true;
             } else {
+                MemorySegment errBuf = instanceArena.allocate(256 * 2);
+                midiInGetErrorText.invokeExact(result, errBuf, 256);
+                String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
                 instanceArena.close();
-                throw new RuntimeException("Could not open MIDI in port: " + result);
+                throw new RuntimeException("Could not open MIDI in port: " + errMsg + " (" + result + ")");
             }
         } catch (Throwable t) {
             if (instanceArena != null) instanceArena.close();

@@ -18,6 +18,9 @@ public class UnixApi {
     public static final MethodHandle pthread_setschedparam = downcall("pthread_setschedparam", 
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
+    public static final MethodHandle strerror = downcall("strerror",
+        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     public static final int SCHED_OTHER = 0;
     public static final int SCHED_FIFO = 1;
     public static final int SCHED_RR = 2;

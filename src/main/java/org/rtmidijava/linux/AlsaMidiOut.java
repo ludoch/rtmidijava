@@ -41,7 +41,11 @@ public class AlsaMidiOut extends RtMidiOut {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
                 int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_OUTPUT, 0);
-                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                if (result < 0) {
+                    MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
+                    String errMsg = errPtr.reinterpret(256).getString(0);
+                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
             }
             
@@ -63,7 +67,11 @@ public class AlsaMidiOut extends RtMidiOut {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
                 int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_OUTPUT, 0);
-                if (result < 0) throw new RuntimeException("snd_seq_open failed: " + result);
+                if (result < 0) {
+                    MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
+                    String errMsg = errPtr.reinterpret(256).getString(0);
+                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
             }
             

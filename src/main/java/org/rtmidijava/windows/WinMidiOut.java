@@ -54,8 +54,11 @@ public class WinMidiOut extends RtMidiOut {
                 hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 connected = true;
             } else {
+                MemorySegment errBuf = instanceArena.allocate(256 * 2);
+                midiOutGetErrorText.invokeExact(result, errBuf, 256);
+                String errMsg = errBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE);
                 instanceArena.close();
-                throw new RuntimeException("Could not open MIDI out port: " + result);
+                throw new RuntimeException("Could not open MIDI out port: " + errMsg + " (" + result + ")");
             }
         } catch (Throwable t) {
             if (instanceArena != null) instanceArena.close();

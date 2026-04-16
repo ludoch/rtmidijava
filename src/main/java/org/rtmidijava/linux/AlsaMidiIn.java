@@ -3,6 +3,7 @@ package org.rtmidijava.linux;
 import org.rtmidijava.RtMidiIn;
 import java.lang.foreign.*;
 import java.util.List;
+import java.io.ByteArrayOutputStream;
 
 import static org.rtmidijava.linux.AlsaApi.*;
 
@@ -10,6 +11,7 @@ public class AlsaMidiIn extends RtMidiIn {
     private MemorySegment seqHandle = MemorySegment.NULL;
     private int vPort = -1;
     private Thread worker;
+    private final ByteArrayOutputStream sysexBuffer = new ByteArrayOutputStream();
     private Callback javaCallback;
 
     @Override
@@ -139,7 +141,20 @@ public class AlsaMidiIn extends RtMidiIn {
             case SND_SEQ_EVENT_SYSEX: {
                 int len = ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("len")));
                 MemorySegment ptr = ev.get(ValueLayout.ADDRESS, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")));
-                return ptr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE);
+                byte[] data = ptr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE);
+                
+                // Check if it's a chunk or a complete message
+                // In ALSA, if the message is large, it comes in chunks.
+                // We reassemble until we see 0xF7 at the end.
+                try {
+                    sysexBuffer.write(data);
+                    if (data[data.length - 1] == (byte)0xF7) {
+                        byte[] full = sysexBuffer.toByteArray();
+                        sysexBuffer.reset();
+                        return full;
+                    }
+                } catch (Exception e) {}
+                return null; // Not finished yet
             }
         }
         return null;

@@ -72,6 +72,9 @@ public class WinMidiApi {
     public static final MethodHandle midiInPrepareHeader = downcall("midiInPrepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle midiInUnprepareHeader = downcall("midiInUnprepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
+    public static final MethodHandle midiOutGetErrorText = downcall("midiOutGetErrorTextW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiInGetErrorText = downcall("midiInGetErrorTextW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     private static MethodHandle downcall(String name, FunctionDescriptor desc) {
         return LINKER.downcallHandle(WINMM.find(name).get(), desc);
     }
