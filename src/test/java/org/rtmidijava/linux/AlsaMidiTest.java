@@ -32,8 +32,11 @@ public class AlsaMidiTest {
             out.closePort();
             assertFalse(out.isPortOpen());
         } catch (RuntimeException e) {
-            if (e.getMessage().contains("snd_seq_open failed: -13")) {
-                System.out.println("Skipping virtual port test: Permission denied to ALSA sequencer");
+            String msg = e.getMessage();
+            if (e.getCause() != null) msg += " " + e.getCause().getMessage();
+            
+            if (msg.contains("snd_seq_open failed")) {
+                System.out.println("Skipping virtual port test: ALSA sequencer not available or permission denied (" + msg + ")");
             } else {
                 throw e;
             }

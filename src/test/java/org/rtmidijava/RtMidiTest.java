@@ -43,8 +43,11 @@ public class RtMidiTest {
         try {
             midiIn.openVirtualPort("Test Virtual In");
         } catch (RuntimeException e) {
-            if (e.getMessage().contains("snd_seq_open failed: -13")) {
-                System.out.println("Skipping send/receive test: Permission denied to ALSA sequencer");
+            String msg = e.getMessage();
+            if (e.getCause() != null) msg += " " + e.getCause().getMessage();
+            
+            if (msg.contains("snd_seq_open failed")) {
+                System.out.println("Skipping send/receive test: ALSA sequencer not available or permission denied (" + msg + ")");
                 midiIn.closePort();
                 midiOut.closePort();
                 return;
