@@ -16,7 +16,8 @@ public class WinMidiIn extends RtMidiIn {
     private static final int RT_SYSEX_BUFFER_COUNT = 4;
     private MemorySegment[] sysexBuffers = new MemorySegment[RT_SYSEX_BUFFER_COUNT];
     private MemorySegment upcallStub;
-    private final java.io.ByteArrayOutputStream sysexBuffer = new java.io.ByteArrayOutputStream();
+    private MemorySegment sysexNativeBuffer;
+    private int sysexOffset = 0;
 
     public WinMidiIn() {
         try {
@@ -38,13 +39,14 @@ public class WinMidiIn extends RtMidiIn {
             byte status = (byte) (dwParam1 & 0xFF);
             byte data1 = (byte) ((dwParam1 >> 8) & 0xFF);
             byte data2 = (byte) ((dwParam1 >> 16) & 0xFF);
-            byte[] msg;
-            if ((status & 0xFF) < 0xC0 || (status & 0xFF) >= 0xE0) {
-                msg = new byte[]{status, data1, data2};
-            } else {
-                msg = new byte[]{status, data1};
-            }
+            
             try (Arena local = Arena.ofConfined()) {
+                byte[] msg;
+                if ((status & 0xFF) < 0xC0 || (status & 0xFF) >= 0xE0) {
+                    msg = new byte[]{status, data1, data2};
+                } else {
+                    msg = new byte[]{status, data1};
+                }
                 onIncomingMessage(timestamp, local.allocateFrom(ValueLayout.JAVA_BYTE, msg));
             }
         } else if (wMsg == MIM_LONGDATA) {
@@ -54,16 +56,13 @@ public class WinMidiIn extends RtMidiIn {
                 MemorySegment dataPtr = header.get(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")));
                 MemorySegment data = dataPtr.reinterpret(bytesRecorded);
                 
-                try {
-                    sysexBuffer.write(data.toArray(ValueLayout.JAVA_BYTE));
-                    if (data.get(ValueLayout.JAVA_BYTE, bytesRecorded - 1) == (byte)0xF7) {
-                        byte[] full = sysexBuffer.toByteArray();
-                        sysexBuffer.reset();
-                        try (Arena local = Arena.ofConfined()) {
-                            onIncomingMessage(timestamp, local.allocateFrom(ValueLayout.JAVA_BYTE, full));
-                        }
-                    }
-                } catch (Exception e) {}
+                MemorySegment.copy(data, 0, sysexNativeBuffer, sysexOffset, bytesRecorded);
+                sysexOffset += bytesRecorded;
+                
+                if (data.get(ValueLayout.JAVA_BYTE, bytesRecorded - 1) == (byte)0xF7) {
+                    onIncomingMessage(timestamp, sysexNativeBuffer.asSlice(0, sysexOffset));
+                    sysexOffset = 0;
+                }
             }
             // Re-queue the buffer
             try {
@@ -116,6 +115,9 @@ public class WinMidiIn extends RtMidiIn {
             if (result == 0) {
                 hMidiIn = phmi.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 
+                // Pre-allocate sysex buffer
+                sysexNativeBuffer = instanceArena.allocate(8192);
+
                 // Allocate and add Sysex buffers
                 for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
                     sysexBuffers[i] = instanceArena.allocate(MIDIHDR);

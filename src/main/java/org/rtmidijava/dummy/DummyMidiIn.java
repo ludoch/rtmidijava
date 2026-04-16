@@ -32,4 +32,10 @@ public class DummyMidiIn extends RtMidiIn {
     public void closePort() {
         connected = false;
     }
+
+    @Override
+    public void cancelCallback() {
+        this.callback = null;
+        this.fastCallback = null;
+    }
 }

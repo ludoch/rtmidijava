@@ -1,10 +1,14 @@
 package org.rtmidijava;
 
-import java.util.concurrent.ConcurrentLinkedQueue;
+import org.rtmidijava.utils.MidiRingBuffer;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * Class for handling MIDI input.
  * Can be used with either a callback or by polling the message queue.
+ * Optimized for Zero-GC in the callback path.
  */
 public abstract class RtMidiIn extends RtMidi {
     
@@ -13,7 +17,9 @@ public abstract class RtMidiIn extends RtMidi {
      */
     public record MidiMessage(double timeStamp, byte[] data) {}
 
-    protected ConcurrentLinkedQueue<MidiMessage> queue = new ConcurrentLinkedQueue<>();
+    protected final Arena sharedArena = Arena.ofShared();
+    protected final MidiRingBuffer ringBuffer = new MidiRingBuffer(65536, sharedArena);
+    
     protected boolean ignoreSysex = true;
     protected boolean ignoreTime = true;
     protected boolean ignoreSense = true;
@@ -24,11 +30,6 @@ public abstract class RtMidiIn extends RtMidi {
      * Functional interface for MIDI input callbacks.
      */
     public interface Callback {
-        /**
-         * Called when a new MIDI message is received.
-         * @param timeStamp the time in seconds since the port was opened.
-         * @param message the raw MIDI message bytes.
-         */
         void onMessage(double timeStamp, byte[] message);
     }
 
@@ -37,45 +38,24 @@ public abstract class RtMidiIn extends RtMidi {
      * Provides a MemorySegment to avoid byte[] allocations.
      */
     public interface FastCallback {
-        /**
-         * Called when a new MIDI message is received.
-         * @param timeStamp the time in seconds since the port was opened.
-         * @param message the segment containing the raw MIDI bytes.
-         */
-        void onMessage(double timeStamp, java.lang.foreign.MemorySegment message);
+        void onMessage(double timeStamp, MemorySegment message);
     }
 
-    /**
-     * Sets the callback function to be called when a new message arrives.
-     * Setting a callback disables the internal message queue.
-     */
     public void setCallback(Callback callback) {
         this.callback = callback;
         this.fastCallback = null;
     }
 
-    /**
-     * Sets a high-performance zero-copy callback.
-     */
     public void setFastCallback(FastCallback fastCallback) {
         this.fastCallback = fastCallback;
         this.callback = null;
     }
 
-    /**
-     * Cancels the currently set callback and enables the message queue.
-     */
     public void cancelCallback() {
         this.callback = null;
         this.fastCallback = null;
     }
 
-    /**
-     * Specify types of MIDI messages to ignore.
-     * @param midiSysex ignore system exclusive messages if true.
-     * @param midiTime ignore timing clock messages if true.
-     * @param midiSense ignore active sensing messages if true.
-     */
     public void ignoreTypes(boolean midiSysex, boolean midiTime, boolean midiSense) {
         this.ignoreSysex = midiSysex;
         this.ignoreTime = midiTime;
@@ -83,37 +63,38 @@ public abstract class RtMidiIn extends RtMidi {
     }
 
     /**
-     * Returns the next message from the queue if no callback is set.
-     * @return the raw message bytes, or null if no message is available.
+     * Returns the next message from the internal off-heap ring buffer.
+     * Note: This implementation allocates a small byte[] to return the data.
+     * For Zero-GC, use setFastCallback instead.
      */
     public byte[] getMessage() {
-        MidiMessage msg = queue.poll();
+        MidiMessage msg = getMessageWithTimestamp();
         return msg != null ? msg.data : null;
     }
 
     /**
-     * Returns the next message with its timestamp from the queue.
-     * @return the MidiMessage, or null if no message is available.
+     * Returns the next message with its timestamp from the off-heap ring buffer.
      */
     public MidiMessage getMessageWithTimestamp() {
-        return queue.poll();
+        byte[] data = new byte[1024];
+        double[] tsOut = new double[1];
+        int len = ringBuffer.read(data, tsOut);
+        if (len < 0) return null;
+        
+        byte[] actual = new byte[len];
+        System.arraycopy(data, 0, actual, 0, len);
+        return new MidiMessage(tsOut[0], actual);
     }
 
-    /**
-     * Internal method called by backends when a message arrives.
-     */
     protected void onIncomingMessage(double timeStamp, byte[] data) {
-        try (java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined()) {
-            onIncomingMessage(timeStamp, arena.allocateFrom(java.lang.foreign.ValueLayout.JAVA_BYTE, data));
+        try (Arena local = Arena.ofConfined()) {
+            onIncomingMessage(timeStamp, local.allocateFrom(ValueLayout.JAVA_BYTE, data));
         }
     }
 
-    /**
-     * Internal method called by backends when a message arrives in a MemorySegment.
-     */
-    protected void onIncomingMessage(double timeStamp, java.lang.foreign.MemorySegment data) {
+    protected void onIncomingMessage(double timeStamp, MemorySegment data) {
         if (data.byteSize() > 0) {
-            byte status = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+            byte status = data.get(ValueLayout.JAVA_BYTE, 0);
             if (ignoreSysex && (status == (byte)0xF0 || status == (byte)0xF7)) return;
             if (ignoreTime && (status >= (byte)0xF8 && status <= (byte)0xFA)) return;
             if (ignoreSense && status == (byte)0xFE) return;
@@ -122,10 +103,17 @@ public abstract class RtMidiIn extends RtMidi {
         if (fastCallback != null) {
             fastCallback.onMessage(timeStamp, data);
         } else if (callback != null) {
-            callback.onMessage(timeStamp, data.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE));
+            callback.onMessage(timeStamp, data.toArray(ValueLayout.JAVA_BYTE));
         } else {
-            queue.add(new MidiMessage(timeStamp, data.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE)));
-            if (queue.size() > 1024) queue.poll();
+            // Internal off-heap storage, no GC pressure on write
+            ringBuffer.write(timeStamp, data);
         }
+    }
+
+    @Override
+    public void closePort() {
+        // Implementation in backends, but we should clear buffer
+        ringBuffer.clear();
+        connected = false;
     }
 }
