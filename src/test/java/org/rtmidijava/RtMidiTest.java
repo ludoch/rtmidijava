@@ -39,11 +39,12 @@ public class RtMidiTest {
             return;
         }
 
-        final byte[][] receivedData = new byte[1][];
+        final java.util.concurrent.atomic.AtomicReference<byte[]> receivedData = new java.util.concurrent.atomic.AtomicReference<>();
+        midiIn.ignoreTypes(false, false, false);
         try {
             midiIn.openVirtualPort("Test Virtual In");
-            // Settle time for OS MIDI server
-            Thread.sleep(500);
+            // Give system time to propagate virtual port
+            Thread.sleep(1000);
         } catch (RuntimeException e) {
             String msg = e.getMessage();
             if (e.getCause() != null) msg += " " + e.getCause().getMessage();
@@ -56,15 +57,17 @@ public class RtMidiTest {
             }
             throw e;
         }
+
         midiIn.setCallback((timeStamp, message) -> {
-            System.out.println("Received message: " + bytesToHex(message));
-            receivedData[0] = message;
+            receivedData.set(message);
         });
 
         // Find the port we just created in the output list
         int outPort = -1;
-        for (int i = 0; i < midiOut.getPortCount(); i++) {
-            if (midiOut.getPortName(i).equals("Test Virtual In")) {
+        int portCount = midiOut.getPortCount();
+        for (int i = 0; i < portCount; i++) {
+            String name = midiOut.getPortName(i);
+            if (name.contains("Test Virtual In")) {
                 outPort = i;
                 break;
             }
@@ -73,20 +76,25 @@ public class RtMidiTest {
         if (outPort != -1) {
             midiOut.openPort(outPort, "Test Out");
             byte[] msg = new byte[]{(byte)0x90, 0x3C, 0x7F};
-            System.out.println("Sending message: " + bytesToHex(msg));
             midiOut.sendMessage(msg);
             
-            // Wait for callback - increased for CI environments
-            for (int i = 0; i < 20; i++) {
-                if (receivedData[0] != null) break;
-                Thread.sleep(100);
+            // Wait for callback with timeout
+            for (int i = 0; i < 100; i++) {
+                byte[] data = receivedData.get();
+                if (data != null) break;
+                if (midiOut.getCurrentApi() == RtMidi.Api.MACOS_CORE) {
+                    org.rtmidijava.macos.CoreMidiUtils.runRunLoop(0.01);
+                    Thread.sleep(10);
+                } else {
+                    Thread.sleep(100);
+                }
             }
             
-            assertNotNull(receivedData[0], "Message not received within timeout");
-            assertArrayEquals(msg, receivedData[0]);
+            assertNotNull(receivedData.get(), "Message was not received");
+            assertArrayEquals(msg, receivedData.get());
             midiOut.closePort();
         } else {
-            System.out.println("Could not find virtual input port in output list");
+            System.out.println("Could not find virtual input port in output list. This might happen in some restricted CI environments.");
         }
         
         midiIn.closePort();

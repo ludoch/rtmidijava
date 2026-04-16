@@ -23,8 +23,8 @@ public abstract class RtMidiIn extends RtMidi {
     protected boolean ignoreSysex = true;
     protected boolean ignoreTime = true;
     protected boolean ignoreSense = true;
-    protected Callback callback;
-    protected FastCallback fastCallback;
+    protected volatile Callback callback;
+    protected volatile FastCallback fastCallback;
 
     /**
      * Functional interface for MIDI input callbacks.

@@ -45,12 +45,28 @@ public class CoreMidiUtils {
     );
     private static final double timeFactor;
 
+    private static final MethodHandle cfRunLoopGetCurrent = LINKER.downcallHandle(
+            CORE_FOUNDATION.find("CFRunLoopGetCurrent").get(),
+            FunctionDescriptor.of(ValueLayout.ADDRESS)
+    );
+
+    private static final MethodHandle cfRunLoopRunInMode = LINKER.downcallHandle(
+            CORE_FOUNDATION.find("CFRunLoopRunInMode").get(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_BYTE)
+    );
+
+    private static MemorySegment kCFRunLoopDefaultMode;
+
     static {
-        MemorySegment name = MemorySegment.NULL;
+        MemorySegment propName = MemorySegment.NULL;
         try {
-            name = CORE_MIDI.find("kMIDIPropertyName").get().reinterpret(8).get(ValueLayout.ADDRESS, 0);
+            propName = CORE_MIDI.find("kMIDIPropertyName").get().reinterpret(8).get(ValueLayout.ADDRESS, 0);
         } catch (Exception e) {}
-        kMIDIPropertyName = name;
+        kMIDIPropertyName = propName;
+
+        try {
+            kCFRunLoopDefaultMode = CORE_FOUNDATION.find("kCFRunLoopDefaultMode").get().reinterpret(8).get(ValueLayout.ADDRESS, 0);
+        } catch (Exception e) {}
 
         double factor = 1.0;
         try (Arena arena = Arena.ofConfined()) {
@@ -63,6 +79,14 @@ public class CoreMidiUtils {
         timeFactor = factor;
     }
 
+    public static void runRunLoop(double seconds) {
+        try {
+            if (kCFRunLoopDefaultMode != null && !kCFRunLoopDefaultMode.equals(MemorySegment.NULL)) {
+                cfRunLoopRunInMode.invokeExact(kCFRunLoopDefaultMode, seconds, (byte) 1);
+            }
+        } catch (Throwable t) {}
+    }
+
     public static double convertTimestamp(long machTime) {
         return machTime * timeFactor;
     }
@@ -70,7 +94,11 @@ public class CoreMidiUtils {
     public static void setPropertyName(int obj, String name) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment cfStr = createCFString(name, arena);
-            midiObjectSetProperty.invokeExact(obj, kMIDIPropertyName, cfStr);
+            MemorySegment propName = kMIDIPropertyName;
+            if (propName == null || propName.equals(MemorySegment.NULL)) {
+                propName = createCFString("name", arena);
+            }
+            int result = (int) midiObjectSetProperty.invokeExact(obj, propName, cfStr);
             release(cfStr);
         } catch (Throwable t) {}
     }
@@ -86,7 +114,7 @@ public class CoreMidiUtils {
     }
 
     public static String cfStringToString(MemorySegment cfString) {
-        if (cfString.equals(MemorySegment.NULL)) return null;
+        if (cfString == null || cfString.equals(MemorySegment.NULL)) return null;
         try (Arena arena = Arena.ofConfined()) {
             long length = (long) cfStringGetLength.invokeExact(cfString);
             if (length == 0) return "";
@@ -109,7 +137,7 @@ public class CoreMidiUtils {
     }
 
     public static void release(MemorySegment cfObject) {
-        if (cfObject.equals(MemorySegment.NULL)) return;
+        if (cfObject == null || cfObject.equals(MemorySegment.NULL)) return;
         try {
             cfRelease.invokeExact(cfObject);
         } catch (Throwable t) {
