@@ -154,6 +154,7 @@ public class CoreMidiOut extends RtMidiOut {
              status = (int) midiSourceCreate.invokeExact(client, cfPortName, pSrc);
              checkStatus(status, "MIDISourceCreate failed");
              destination = pSrc.get(ValueLayout.JAVA_INT, 0);
+             CoreMidiUtils.setPropertyName(destination, portName);
              port = 0;
              CoreMidiUtils.release(cfPortName);
              connected = true;

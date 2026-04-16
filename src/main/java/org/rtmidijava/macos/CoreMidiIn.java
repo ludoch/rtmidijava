@@ -95,7 +95,7 @@ public class CoreMidiIn extends RtMidiIn {
             short length = pktList.get(ValueLayout.JAVA_SHORT, offset + 8);
             byte[] data = new byte[length];
             MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
-            onIncomingMessage(timeStamp / 1_000_000_000.0, data); 
+            onIncomingMessage(CoreMidiUtils.convertTimestamp(timeStamp), data); 
             offset += 10 + length;
         }
     }
@@ -192,6 +192,7 @@ public class CoreMidiIn extends RtMidiIn {
             status = (int) midiDestinationCreate.invokeExact(client, cfPortName, upcallStub, MemorySegment.NULL, pDest);
             checkStatus(status, "MIDIDestinationCreate failed");
             source = pDest.get(ValueLayout.JAVA_INT, 0);
+            CoreMidiUtils.setPropertyName(source, portName);
             port = 0;
             CoreMidiUtils.release(cfPortName);
             connected = true;

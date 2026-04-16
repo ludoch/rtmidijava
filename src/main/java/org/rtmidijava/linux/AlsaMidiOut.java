@@ -30,7 +30,7 @@ public class AlsaMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         List<AlsaPortInfo> ports = getPorts(false);
         if (portNumber < 0 || portNumber >= ports.size()) {
             throw new RuntimeException("Invalid port number");
@@ -58,7 +58,7 @@ public class AlsaMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         try (Arena arena = Arena.ofConfined()) {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
@@ -78,7 +78,7 @@ public class AlsaMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (!seqHandle.equals(MemorySegment.NULL)) {
             try {
                 snd_seq_close.invokeExact(seqHandle);
@@ -89,7 +89,7 @@ public class AlsaMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void sendMessage(byte[] message) {
+    public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment ev = arena.allocate(snd_seq_event_t);

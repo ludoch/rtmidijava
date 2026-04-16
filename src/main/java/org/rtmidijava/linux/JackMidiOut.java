@@ -100,7 +100,7 @@ public class JackMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         initClient();
         String destName = getPortName(portNumber);
         openVirtualPort(portName);
@@ -111,7 +111,7 @@ public class JackMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         initClient();
         try (Arena arena = Arena.ofConfined()) {
             port = (MemorySegment) jack_port_register.invokeExact(client, arena.allocateFrom(portName), arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput, 0L);
@@ -122,7 +122,7 @@ public class JackMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (!client.equals(MemorySegment.NULL)) {
             try {
                 jack_client_close.invokeExact(client);
@@ -136,7 +136,7 @@ public class JackMidiOut extends RtMidiOut {
     }
 
     @Override
-    public void sendMessage(byte[] message) {
+    public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pSize = arena.allocate(ValueLayout.JAVA_INT);

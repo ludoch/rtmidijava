@@ -54,7 +54,6 @@ public class WinMidiIn extends RtMidiIn {
             }
             // Re-queue the buffer
             try {
-                midiInPrepareHeader.invokeExact(hMidiIn, header, (int) MIDIHDR.byteSize());
                 midiInAddBuffer.invokeExact(hMidiIn, header, (int) MIDIHDR.byteSize());
             } catch (Throwable t) {}
         }

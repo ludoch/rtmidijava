@@ -40,7 +40,11 @@ public class JackMidiIn extends RtMidiIn {
                 MemorySegment dataPtr = event.get(ValueLayout.ADDRESS, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("buffer")));
                 byte[] data = dataPtr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE);
                 
-                onIncomingMessage(System.nanoTime() / 1_000_000_000.0, data);
+                synchronized(this) {
+                    if (connected) {
+                        onIncomingMessage(System.nanoTime() / 1_000_000_000.0, data);
+                    }
+                }
             }
         } catch (Throwable t) {}
         return 0;
@@ -92,7 +96,7 @@ public class JackMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         initClient();
         String srcName = getPortName(portNumber);
         openVirtualPort(portName);
@@ -103,7 +107,7 @@ public class JackMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         initClient();
         try (Arena arena = Arena.ofConfined()) {
             port = (MemorySegment) jack_port_register.invokeExact(client, arena.allocateFrom(portName), arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsInput, 0L);
@@ -114,7 +118,7 @@ public class JackMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void closePort() {
+    public synchronized void closePort() {
         if (!client.equals(MemorySegment.NULL)) {
             try {
                 jack_client_close.invokeExact(client);

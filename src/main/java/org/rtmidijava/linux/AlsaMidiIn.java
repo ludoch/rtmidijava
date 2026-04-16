@@ -32,7 +32,7 @@ public class AlsaMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openPort(int portNumber, String portName) {
+    public synchronized void openPort(int portNumber, String portName) {
         List<AlsaPortInfo> ports = getPorts(true);
         if (portNumber < 0 || portNumber >= ports.size()) {
             throw new RuntimeException("Invalid port number");
@@ -61,7 +61,7 @@ public class AlsaMidiIn extends RtMidiIn {
     }
 
     @Override
-    public void openVirtualPort(String portName) {
+    public synchronized void openVirtualPort(String portName) {
         try (Arena arena = Arena.ofConfined()) {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
@@ -91,14 +91,16 @@ public class AlsaMidiIn extends RtMidiIn {
                     if (result >= 0) {
                         MemorySegment ev = pEv.get(ValueLayout.ADDRESS, 0).reinterpret(snd_seq_event_t.byteSize());
                         byte[] midi = parseEvent(ev);
-                        if (midi != null && javaCallback != null) {
-                            double time = System.nanoTime() / 1_000_000_000.0; // Placeholder for real ALSA time
-                            javaCallback.onMessage(time, midi);
+                        if (midi != null) {
+                            synchronized(this) {
+                                if (connected) {
+                                    onIncomingMessage(System.nanoTime() / 1_000_000_000.0, midi);
+                                }
+                            }
                         }
                     }
                 }
             } catch (Throwable t) {
-                // t.printStackTrace();
             }
         });
         worker.setDaemon(true);
