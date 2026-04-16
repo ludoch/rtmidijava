@@ -126,6 +126,24 @@ public class AlsaApi {
     public static final MethodHandle snd_seq_poll_descriptors = downcall("snd_seq_poll_descriptors",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_SHORT));
 
+    public static final MethodHandle snd_card_get_name = downcall("snd_card_get_name",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    public static final MethodHandle snd_ctl_card_info_sizeof = downcall("snd_ctl_card_info_sizeof",
+        FunctionDescriptor.of(ValueLayout.JAVA_LONG));
+
+    public static final MethodHandle snd_ctl_open = downcall("snd_ctl_open",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+    public static final MethodHandle snd_ctl_close = downcall("snd_ctl_close",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    public static final MethodHandle snd_ctl_card_info = downcall("snd_ctl_card_info",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+    public static final MethodHandle snd_ctl_card_info_get_name = downcall("snd_ctl_card_info_get_name",
+        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
     private static MethodHandle downcall(String name, FunctionDescriptor desc) {
         return LINKER.downcallHandle(ALSA.find(name).get(), desc);
     }
@@ -208,6 +226,17 @@ public class AlsaApi {
             while ((int) snd_seq_query_next_client.invokeExact(h, cInfo) == 0) {
                 int client = (int) snd_seq_client_info_get_client.invokeExact(cInfo);
                 String clientName = ((MemorySegment) snd_seq_client_info_get_name.invokeExact(cInfo)).reinterpret(256).getString(0);
+
+                // Pro-Audio: Try to get friendly card name if it's a hardware client
+                if (clientName.startsWith("Client-")) {
+                    try {
+                        int cardNum = Integer.parseInt(clientName.substring(7));
+                        MemorySegment cardNameBuf = arena.allocate(256);
+                        if ((int) snd_card_get_name.invokeExact(cardNum, cardNameBuf) == 0) {
+                            clientName = cardNameBuf.reinterpret(256).getString(0);
+                        }
+                    } catch (Throwable t) {}
+                }
 
                 MemorySegment pInfo = arena.allocate((long) snd_seq_port_info_sizeof.invokeExact());
                 snd_seq_port_info_set_client.invokeExact(pInfo, client);

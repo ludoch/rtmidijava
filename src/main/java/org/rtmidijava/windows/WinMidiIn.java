@@ -16,6 +16,7 @@ public class WinMidiIn extends RtMidiIn {
     private static final int RT_SYSEX_BUFFER_SIZE = 1024;
     private static final int RT_SYSEX_BUFFER_COUNT = 4;
     private MemorySegment[] sysexBuffers = new MemorySegment[RT_SYSEX_BUFFER_COUNT];
+    private final java.io.ByteArrayOutputStream sysexBuffer = new java.io.ByteArrayOutputStream();
 
     public WinMidiIn() {
         try {
@@ -50,7 +51,15 @@ public class WinMidiIn extends RtMidiIn {
             if (bytesRecorded > 0) {
                 MemorySegment dataPtr = header.get(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")));
                 byte[] data = dataPtr.reinterpret(bytesRecorded).toArray(ValueLayout.JAVA_BYTE);
-                onIncomingMessage(timestamp, data);
+                
+                try {
+                    sysexBuffer.write(data);
+                    if (data[data.length - 1] == (byte)0xF7) {
+                        byte[] full = sysexBuffer.toByteArray();
+                        sysexBuffer.reset();
+                        onIncomingMessage(timestamp, full);
+                    }
+                } catch (Exception e) {}
             }
             // Re-queue the buffer
             try {
