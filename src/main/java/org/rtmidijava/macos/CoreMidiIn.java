@@ -6,6 +6,8 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 
+import org.rtmidijava.RtMidiException;
+
 public class CoreMidiIn extends RtMidiIn {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup CORE_MIDI = SymbolLookup.libraryLookup("/System/Library/Frameworks/CoreMIDI.framework/Versions/Current/CoreMIDI", Arena.global());
@@ -16,14 +18,14 @@ public class CoreMidiIn extends RtMidiIn {
             FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
     );
 
-    private static final MethodHandle cfStringCreateWithCharacters = LINKER.downcallHandle(
-            CORE_FOUNDATION.find("CFStringCreateWithCharacters").get(),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG)
-    );
-
     private static final MethodHandle midiClientCreate = LINKER.downcallHandle(
             CORE_MIDI.find("MIDIClientCreate").get(),
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+    );
+
+    private static final MethodHandle midiClientDispose = LINKER.downcallHandle(
+            CORE_MIDI.find("MIDIClientDispose").get(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)
     );
 
     private static final MethodHandle midiInputPortCreate = LINKER.downcallHandle(
@@ -46,19 +48,31 @@ public class CoreMidiIn extends RtMidiIn {
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG)
     );
 
-    private Callback javaCallback;
+    private static final MethodHandle midiObjectGetStringProperty = LINKER.downcallHandle(
+            CORE_MIDI.find("MIDIObjectGetStringProperty").get(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+    );
+
+    private static MemorySegment kMIDIPropertyName;
+
+    static {
+        try {
+            kMIDIPropertyName = CORE_MIDI.find("kMIDIPropertyName").get().reinterpret(8).get(ValueLayout.ADDRESS, 0);
+        } catch (Exception e) {}
+    }
+
     private int client = 0;
     private int port = 0;
+    private int source = 0;
     private MemorySegment upcallStub;
 
     public CoreMidiIn() {
         try {
-            MethodHandle onMidiMessage = MethodHandles.lookup().findVirtual(CoreMidiIn.class, "onMidiMessage", 
-                MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class, MemorySegment.class));
-            onMidiMessage = onMidiMessage.bindTo(this);
+            MethodHandle handle = MethodHandles.lookup().findStatic(CoreMidiIn.class, "onMidiMessageStatic", 
+                MethodType.methodType(void.class, CoreMidiIn.class, MemorySegment.class, MemorySegment.class, MemorySegment.class));
+            handle = handle.bindTo(this);
             
-            // MIDIReadProc(const MIDIPacketList *pktlist, void *readProcRefCon, void *srcConnRefCon)
-            upcallStub = LINKER.upcallStub(onMidiMessage, 
+            upcallStub = LINKER.upcallStub(handle, 
                 FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS), 
                 Arena.global());
         } catch (Exception e) {
@@ -66,23 +80,23 @@ public class CoreMidiIn extends RtMidiIn {
         }
     }
 
+    private static void onMidiMessageStatic(CoreMidiIn instance, MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
+        instance.onMidiMessage(pktList, readProcRefCon, srcConnRefCon);
+    }
+
     // This method is called by the native thread via upcallStub
     private void onMidiMessage(MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
-        if (javaCallback == null) return;
-        
-        // Simplified parsing of MIDIPacketList
         int numPackets = pktList.get(ValueLayout.JAVA_INT, 0);
-        long offset = 4;
+        long offset = 8; // Offset 8 due to alignment of MIDIPacket
         for (int i = 0; i < numPackets; i++) {
             long timeStamp = pktList.get(ValueLayout.JAVA_LONG, offset);
             short length = pktList.get(ValueLayout.JAVA_SHORT, offset + 8);
             byte[] data = new byte[length];
             MemorySegment.copy(pktList, ValueLayout.JAVA_BYTE, offset + 10, data, 0, length);
             
-            javaCallback.onMessage(timeStamp / 1000000000.0, data); // Nanoseconds to seconds approx
+            onIncomingMessage(timeStamp / 1_000_000_000.0, data); 
             
             offset += 10 + length;
-            // Alignment: packets are often padded to 4 or 8 bytes
             if (offset % 4 != 0) offset += (4 - (offset % 4));
         }
     }
@@ -90,6 +104,12 @@ public class CoreMidiIn extends RtMidiIn {
     @Override
     public Api getCurrentApi() {
         return Api.MACOS_CORE;
+    }
+
+    private void checkStatus(int status, String message) {
+        if (status != 0) {
+            throw new RtMidiException(message + " (OSStatus: " + status + ")", RtMidiException.Type.DRIVER_ERROR);
+        }
     }
 
     @Override
@@ -103,63 +123,96 @@ public class CoreMidiIn extends RtMidiIn {
 
     @Override
     public String getPortName(int portNumber) {
-        return "CoreMIDI Source " + portNumber;
-    }
+        try (Arena arena = Arena.ofConfined()) {
+            int src = (int) midiGetSource.invokeExact((long) portNumber);
+            if (src == 0) return "Unknown Port";
 
-    private MemorySegment createCFString(String s, Arena arena) throws Throwable {
-        char[] chars = s.toCharArray();
-        MemorySegment mem = arena.allocateFrom(ValueLayout.JAVA_CHAR, chars);
-        return (MemorySegment) cfStringCreateWithCharacters.invokeExact(MemorySegment.NULL, mem, (long) chars.length);
+            MemorySegment pString = arena.allocate(ValueLayout.ADDRESS);
+            MemorySegment propName = kMIDIPropertyName;
+            if (propName == null || propName.address() == 0) {
+                propName = CoreMidiUtils.createCFString("name", arena);
+            }
+            int result = (int) midiObjectGetStringProperty.invokeExact(src, propName, pString);
+            if (result == 0) {
+                MemorySegment cfStr = pString.get(ValueLayout.ADDRESS, 0);
+                String name = CoreMidiUtils.cfStringToString(cfStr);
+                CoreMidiUtils.release(cfStr);
+                return name;
+            }
+        } catch (Throwable t) {}
+        return "CoreMIDI Source " + portNumber;
     }
 
     @Override
     public void openPort(int portNumber, String portName) {
+        if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfName = createCFString("RtMidi Input Client", arena);
-            midiClientCreate.invokeExact(cfName, MemorySegment.NULL, MemorySegment.NULL, pClient);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Input Client", arena);
+            int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
+            checkStatus(status, "MIDIClientCreate failed");
             client = pClient.get(ValueLayout.JAVA_INT, 0);
-            cfRelease.invokeExact(cfName);
+            CoreMidiUtils.release(cfClientName);
 
             MemorySegment pPort = arena.allocate(ValueLayout.JAVA_INT);
-            cfName = createCFString(portName, arena);
-            midiInputPortCreate.invokeExact(client, cfName, upcallStub, MemorySegment.NULL, pPort);
+            MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, arena);
+            status = (int) midiInputPortCreate.invokeExact(client, cfPortName, upcallStub, MemorySegment.NULL, pPort);
+            checkStatus(status, "MIDIInputPortCreate failed");
             port = pPort.get(ValueLayout.JAVA_INT, 0);
-            cfRelease.invokeExact(cfName);
+            CoreMidiUtils.release(cfPortName);
 
-            int source = (int) midiGetSource.invokeExact((long) portNumber);
-            midiPortConnectSource.invokeExact(port, source, MemorySegment.NULL);
+            source = (int) midiGetSource.invokeExact((long) portNumber);
+            if (source == 0) throw new RtMidiException("Invalid port number", RtMidiException.Type.INVALID_PARAMETER);
+            status = (int) midiPortConnectSource.invokeExact(port, source, MemorySegment.NULL);
+            checkStatus(status, "MIDIPortConnectSource failed");
             connected = true;
+        } catch (RtMidiException e) {
+            throw e;
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
         }
     }
 
     @Override
     public void openVirtualPort(String portName) {
-        throw new UnsupportedOperationException("Virtual ports implementation pending");
+        if (connected) closePort();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Input Client", arena);
+            int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
+            checkStatus(status, "MIDIClientCreate failed");
+            client = pClient.get(ValueLayout.JAVA_INT, 0);
+            CoreMidiUtils.release(cfClientName);
+
+            MemorySegment pDest = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment cfPortName = CoreMidiUtils.createCFString(portName, arena);
+            MethodHandle midiDestinationCreate = LINKER.downcallHandle(
+                    CORE_MIDI.find("MIDIDestinationCreate").get(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+            );
+            status = (int) midiDestinationCreate.invokeExact(client, cfPortName, upcallStub, MemorySegment.NULL, pDest);
+            checkStatus(status, "MIDIDestinationCreate failed");
+            source = pDest.get(ValueLayout.JAVA_INT, 0);
+            port = 0;
+            CoreMidiUtils.release(cfPortName);
+            connected = true;
+        } catch (RtMidiException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
+        }
     }
 
     @Override
     public void closePort() {
+        if (client != 0) {
+            try {
+                midiClientDispose.invokeExact(client);
+            } catch (Throwable t) {}
+            client = 0;
+            port = 0;
+            source = 0;
+        }
         connected = false;
-    }
-
-    @Override
-    public void setCallback(Callback callback) {
-        this.javaCallback = callback;
-    }
-
-    @Override
-    public void cancelCallback() {
-        this.javaCallback = null;
-    }
-
-    @Override
-    public void ignoreTypes(boolean midiSysex, boolean midiTime, boolean midiSense) {}
-
-    @Override
-    public byte[] getMessage() {
-        return new byte[0];
     }
 }

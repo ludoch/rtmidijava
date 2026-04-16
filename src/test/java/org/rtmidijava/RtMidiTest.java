@@ -30,17 +30,53 @@ public class RtMidiTest {
     }
 
     @Test
-    public void testOpenPort() {
+    public void testSendReceive() throws InterruptedException {
         RtMidiOut midiOut = RtMidiFactory.createDefaultOut();
-        if (midiOut.getPortCount() > 0) {
-            midiOut.openPort(0, "Test Port");
-            assertTrue(midiOut.isPortOpen());
-            midiOut.sendMessage(new byte[]{(byte)0x90, 0x3C, 0x7F}); // Note On
-            midiOut.sendMessage(new byte[]{(byte)0x80, 0x3C, 0x00}); // Note Off
-            midiOut.closePort();
-            assertFalse(midiOut.isPortOpen());
-        } else {
-            System.out.println("No output ports available to test openPort");
+        RtMidiIn midiIn = RtMidiFactory.createDefaultIn();
+        
+        if (midiOut.getCurrentApi() != RtMidi.Api.MACOS_CORE && midiOut.getCurrentApi() != RtMidi.Api.LINUX_ALSA) {
+            System.out.println("Skipping send/receive test on this platform");
+            return;
         }
+
+        final byte[][] receivedData = new byte[1][];
+        midiIn.openVirtualPort("Test Virtual In");
+        midiIn.setCallback((timeStamp, message) -> {
+            System.out.println("Received message: " + bytesToHex(message));
+            receivedData[0] = message;
+        });
+
+        // Find the port we just created in the output list
+        int outPort = -1;
+        for (int i = 0; i < midiOut.getPortCount(); i++) {
+            if (midiOut.getPortName(i).equals("Test Virtual In")) {
+                outPort = i;
+                break;
+            }
+        }
+
+        if (outPort != -1) {
+            midiOut.openPort(outPort, "Test Out");
+            byte[] msg = new byte[]{(byte)0x90, 0x3C, 0x7F};
+            midiOut.sendMessage(msg);
+            
+            // Wait for callback
+            Thread.sleep(500);
+            
+            assertArrayEquals(msg, receivedData[0]);
+            midiOut.closePort();
+        } else {
+            System.out.println("Could not find virtual input port in output list");
+        }
+        
+        midiIn.closePort();
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
     }
 }
