@@ -35,6 +35,28 @@ To provide a **low-latency, zero-dependency, zero-GC** MIDI library for Java, in
 - Java 25+
 - Maven
 
+## Windows MIDI 2.0 / MIDI Services Setup
+
+To enable modern MIDI features on Windows, including **Native Virtual Ports** (App-to-App MIDI) and **MIDI 2.0 (UMP)** support, you must install the modern Windows MIDI Services stack.
+
+### 1. Prerequisites
+- **OS**: Windows 11 (22H2 or later) or Windows 10 (limited support).
+- **Service**: The `MidiSrv.exe` must be running (installed via the runtime).
+
+### 2. Installation
+1.  Go to the [Microsoft MIDI GitHub Releases](https://github.com/microsoft/MIDI/releases).
+2.  Download and install the latest **Windows MIDI Services Runtime** (e.g., `WindowsMidiServices-x64-vX.X.X.msi`).
+3.  (Optional) Install the **MIDI Console** for device management.
+
+### 3. Verification
+You can verify if your system is ready for MIDI 2.0 by running the included diagnostic tool:
+
+```bash
+mvn exec:java -Dexec.mainClass="org.rtmidijava.windows.WindowsMidiServices"
+```
+
+If detected, the library will automatically unlock `openVirtualPort()` support. If not detected, the library falls back to the legacy **WinMM** backend (which requires third-party drivers like loopMIDI for virtual ports).
+
 ## Installation (Maven)
 
 To use RtMidiJava in your project, add the GitHub Packages repository to your `pom.xml`:
