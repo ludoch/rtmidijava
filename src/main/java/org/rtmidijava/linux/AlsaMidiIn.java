@@ -83,6 +83,7 @@ public class AlsaMidiIn extends RtMidiIn {
 
     private void startWorker() {
         worker = new Thread(() -> {
+            UnixApi.setThreadPriority(99);
             try (Arena arena = Arena.ofShared()) {
                 MemorySegment pEv = arena.allocate(ValueLayout.ADDRESS);
                 while (connected) {

@@ -6,38 +6,53 @@ A Pure Java 25 port of RtMidi using the Foreign Function & Memory (FFM) API.
 To provide a low-latency, zero-dependency (no native JNI binaries) MIDI library for Java, interfacing directly with OS-native MIDI APIs.
 
 ## Supported Backends
-- **Windows**: WinMM (Functional discovery and output)
-- **Linux**: ALSA (Skeleton provided)
-- **macOS**: CoreMIDI (Skeleton provided)
+- **Windows**: WinMM (Full In/Out with Sysex)
+- **Linux**: ALSA and JACK (Full In/Out with Sysex)
+- **macOS**: CoreMIDI (Full In/Out with Sysex)
 
 ## Requirements
 - Java 25+
 - Maven
 
 ## How it works
-Instead of JNI, this library uses `java.lang.foreign` to:
-1. Load native libraries (`winmm.dll`, `libasound.so`, `CoreMIDI.framework`).
+Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
+1. Load native libraries (`winmm.dll`, `libasound.so`, `libjack.so`, `CoreMIDI.framework`).
 2. Bind to native functions using `MethodHandle`s.
 3. Manage native memory using `Arena` and `MemorySegment`.
-4. (Planned) Handle callbacks using `upcallStub`.
+4. Handle high-performance callbacks using `upcallStub`.
+5. Use `pthread_setschedparam` / `SetThreadPriority` for real-time responsiveness.
 
 ## Project Status
 
-| Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) |
-| :--- | :---: | :---: | :---: |
-| **Port Enumeration** | ✅ | ✅ (Generic Name) | ✅ |
-| **Message Output** | ✅ | ✅ | ✅ |
-| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) |
-| **Port Names** | ✅ | 🚧 (Placeholder) | ✅ |
-| **Sysex Support** | 🚧 | 🚧 | ✅ |
-| **Virtual Ports** | ❌ (N/A) | 🚧 | ✅ |
+| Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) | Linux (JACK) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Port Enumeration** | ✅ | ✅ | ✅ | ✅ |
+| **Message Output** | ✅ | ✅ | ✅ | ✅ |
+| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) |
+| **Port Names** | ✅ | ✅ | ✅ | ✅ |
+| **Sysex Support** | ✅ | ✅ | ✅ | ✅ |
+| **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ |
+| **Thread Priority** | ✅ | ✅ | ✅ | ✅ |
 
 ## Implementation Progress
 - [x] Core Multi-Backend Architecture
-- [x] Windows WinMM (In/Out/Enumeration)
-- [x] macOS CoreMIDI (Out/In-Upcall-Skeleton)
-- [x] Linux ALSA (Full In/Out/Enumeration/Sysex)
-- [ ] Windows Sysex Support
-- [ ] macOS CFString Real Name Extraction
-- [x] Linux ALSA Port Enumeration Loop
-- [x] Linux ALSA Event Parsing
+- [x] Windows WinMM (Full Support)
+- [x] macOS CoreMIDI (Full Support)
+- [x] Linux ALSA (Full Support)
+- [x] Linux JACK (Full Support)
+- [x] Zero-latency Message Filtering logic
+- [x] Real-time Thread Priority integration
+- [x] Sysex support across all platforms
+- [x] Virtual Ports support (where applicable)
+
+## Example Usage
+
+```java
+RtMidiIn midiIn = RtMidiFactory.createDefaultIn();
+midiIn.openPort(0, "MyMonitor");
+midiIn.setCallback((timeStamp, message) -> {
+    System.out.println("Received: " + bytesToHex(message));
+});
+```
+
+See `src/main/java/org/rtmidijava/examples/MidiMonitor.java` for a complete example.

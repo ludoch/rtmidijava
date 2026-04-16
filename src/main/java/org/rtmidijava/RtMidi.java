@@ -5,6 +5,7 @@ public abstract class RtMidi {
         UNSPECIFIED,
         MACOS_CORE,
         LINUX_ALSA,
+        LINUX_JACK,
         WINDOWS_MM,
         WINDOWS_UWP, // Windows MIDI Services
         RTMIDI_DUMMY

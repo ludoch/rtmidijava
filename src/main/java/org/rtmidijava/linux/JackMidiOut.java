@@ -1,0 +1,148 @@
+package org.rtmidijava.linux;
+
+import org.rtmidijava.RtMidiOut;
+import java.lang.foreign.*;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.rtmidijava.linux.JackApi.*;
+
+public class JackMidiOut extends RtMidiOut {
+    private MemorySegment client = MemorySegment.NULL;
+    private MemorySegment port = MemorySegment.NULL;
+    private MemorySegment ringBuffer = MemorySegment.NULL;
+    private MemorySegment processStub;
+
+    public JackMidiOut() {
+        try {
+            MethodHandle processHandle = MethodHandles.lookup().findVirtual(JackMidiOut.class, "process",
+                    MethodType.methodType(int.class, int.class, MemorySegment.class));
+            processHandle = processHandle.bindTo(this);
+            processStub = LINKER.upcallStub(processHandle,
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS),
+                    Arena.global());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private int process(int nframes, MemorySegment arg) {
+        if (port.equals(MemorySegment.NULL)) return 0;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment buffer = (MemorySegment) jack_port_get_buffer.invokeExact(port, nframes);
+            jack_midi_clear_buffer.invokeExact(buffer);
+
+            long space = (long) jack_ringbuffer_read_space.invokeExact(ringBuffer);
+            while (space > 0) {
+                // Read size (4 bytes)
+                MemorySegment pSize = arena.allocate(ValueLayout.JAVA_INT);
+                jack_ringbuffer_read.invokeExact(ringBuffer, pSize, 4L);
+                int len = pSize.get(ValueLayout.JAVA_INT, 0);
+                MemorySegment pMidi = arena.allocate(len);
+                jack_ringbuffer_read.invokeExact(ringBuffer, pMidi, (long) len);
+
+                jack_midi_event_write.invokeExact(buffer, 0, pMidi, (long) len);
+                space = (long) jack_ringbuffer_read_space.invokeExact(ringBuffer);
+            }
+        } catch (Throwable t) {
+        }
+        return 0;
+    }
+
+    @Override
+    public Api getCurrentApi() {
+        return Api.LINUX_JACK;
+    }
+
+    @Override
+    public int getPortCount() {
+        initClient();
+        int count = 0;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(client, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsInput);
+            if (ports.equals(MemorySegment.NULL)) return 0;
+            while (!ports.getAtIndex(ValueLayout.ADDRESS, count).equals(MemorySegment.NULL)) {
+                count++;
+            }
+            // jack_free(ports); // Should free the array
+        } catch (Throwable t) {}
+        return count;
+    }
+
+    private void initClient() {
+        if (client.equals(MemorySegment.NULL)) {
+            try (Arena arena = Arena.ofConfined()) {
+                client = (MemorySegment) jack_client_open.invokeExact(arena.allocateFrom("RtMidiJava"), JackNoStartServer, MemorySegment.NULL);
+                if (client.equals(MemorySegment.NULL)) throw new RuntimeException("JACK server not running?");
+                ringBuffer = (MemorySegment) jack_ringbuffer_create.invokeExact(16384L);
+                jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
+                jack_activate.invokeExact(client);
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+    }
+
+    @Override
+    public String getPortName(int portNumber) {
+        initClient();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment ports = (MemorySegment) jack_get_ports.invokeExact(client, MemorySegment.NULL, arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsInput);
+            if (ports.equals(MemorySegment.NULL)) return null;
+            MemorySegment p = ports.getAtIndex(ValueLayout.ADDRESS, portNumber);
+            if (p.equals(MemorySegment.NULL)) return null;
+            return p.reinterpret(256).getString(0);
+        } catch (Throwable t) {}
+        return null;
+    }
+
+    @Override
+    public void openPort(int portNumber, String portName) {
+        initClient();
+        String destName = getPortName(portNumber);
+        openVirtualPort(portName);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment pName = (MemorySegment) jack_port_name.invokeExact(port);
+            jack_connect.invokeExact(client, pName, arena.allocateFrom(destName));
+        } catch (Throwable t) {}
+    }
+
+    @Override
+    public void openVirtualPort(String portName) {
+        initClient();
+        try (Arena arena = Arena.ofConfined()) {
+            port = (MemorySegment) jack_port_register.invokeExact(client, arena.allocateFrom(portName), arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput, 0L);
+            connected = true;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    @Override
+    public void closePort() {
+        if (!client.equals(MemorySegment.NULL)) {
+            try {
+                jack_client_close.invokeExact(client);
+                jack_ringbuffer_free.invokeExact(ringBuffer);
+            } catch (Throwable t) {}
+            client = MemorySegment.NULL;
+            port = MemorySegment.NULL;
+            ringBuffer = MemorySegment.NULL;
+        }
+        connected = false;
+    }
+
+    @Override
+    public void sendMessage(byte[] message) {
+        if (!connected) return;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment pSize = arena.allocate(ValueLayout.JAVA_INT);
+            pSize.set(ValueLayout.JAVA_INT, 0, message.length);
+            jack_ringbuffer_write.invokeExact(ringBuffer, pSize, 4L);
+            jack_ringbuffer_write.invokeExact(ringBuffer, arena.allocateFrom(ValueLayout.JAVA_BYTE, message), (long) message.length);
+        } catch (Throwable t) {}
+    }
+}
