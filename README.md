@@ -35,6 +35,33 @@ To provide a **low-latency, zero-dependency, zero-GC** MIDI library for Java, in
 - Java 25+
 - Maven
 
+## Installation (Maven)
+
+To use RtMidiJava in your project, add the GitHub Packages repository to your `pom.xml`:
+
+```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/ludoch/rtmidijava</url>
+    </repository>
+</repositories>
+```
+
+Then add the dependency:
+
+```xml
+<dependency>
+    <groupId>org.rtmidijava</groupId>
+    <artifactId>rtmidijava</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### Developer Note: FFM Access
+Since this library uses the Foreign Function & Memory API, you must run your application with the following JVM flag:
+`--enable-native-access=ALL-UNNAMED`
+
 ## Example Usage
 
 ### Standard Callback (Easy)
