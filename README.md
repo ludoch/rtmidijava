@@ -24,15 +24,21 @@ Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
 
 ## Project Status
 
-| Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) | Linux (JACK) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Port Enumeration** | ✅ | ✅ | ✅ | ✅ |
-| **Message Output** | ✅ | ✅ | ✅ | ✅ |
-| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) |
-| **Port Names** | ✅ | ✅ | ✅ | ✅ |
-| **Sysex Support** | ✅ | ✅ | ✅ | ✅ |
-| **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ |
-| **Thread Priority** | ✅ | ✅ | ✅ | ✅ |
+| Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) | Linux (JACK) | Dummy |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Port Enumeration** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Message Output** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Message Input** | ✅ (Callbacks) | ✅ (Upcalls) | ✅ (Polling) | ✅ (Callbacks) | ✅ |
+| **Port Names** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Sysex Support** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ | ✅ |
+| **Thread Priority** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+## Validation
+The library has been successfully validated on:
+- **Windows 11**: Verified with `loopMIDI` and `Ableton Push 2` (In/Out).
+- **macOS**: (Implementation complete, verification pending)
+- **Linux**: (Implementation complete, verification pending)
 
 ## Implementation Progress
 - [x] Core Multi-Backend Architecture
@@ -40,6 +46,7 @@ Instead of JNI, this library uses `java.lang.foreign` (FFM) to:
 - [x] macOS CoreMIDI (Full Support)
 - [x] Linux ALSA (Full Support)
 - [x] Linux JACK (Full Support)
+- [x] Dummy Backend for Testing
 - [x] Zero-latency Message Filtering logic
 - [x] Real-time Thread Priority integration
 - [x] Sysex support across all platforms
