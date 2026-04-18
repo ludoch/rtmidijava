@@ -6,7 +6,7 @@ import java.lang.foreign.*;
 import static org.rtmidijava.windows.WinMidiApi.*;
 
 public class WinMidiOut extends RtMidiOut {
-    private MemorySegment hMidiOut = MemorySegment.NULL;
+    private long hMidiOut = 0;
     private Arena instanceArena;
     private MemorySegment sysexHeader;
 
@@ -88,7 +88,7 @@ public class WinMidiOut extends RtMidiOut {
                 instanceArena.close();
                 throw new org.rtmidijava.RtMidiException("WinMidiOut::openPort: " + errMsg, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
             }
-            hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
+            hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).address();
             sysexHeader = instanceArena.allocate(MIDIHDR);
             connected = true;
         } catch (org.rtmidijava.RtMidiException e) {
@@ -106,12 +106,12 @@ public class WinMidiOut extends RtMidiOut {
 
     @Override
     public synchronized void closePort() {
-        if (connected && !hMidiOut.equals(MemorySegment.NULL)) {
+        if (connected && hMidiOut != 0) {
             try {
                 int res = (int) midiOutClose.invokeExact(hMidiOut);
             } catch (Throwable t) {
             }
-            hMidiOut = MemorySegment.NULL;
+            hMidiOut = 0;
             connected = false;
         }
         if (instanceArena != null) {
@@ -122,7 +122,7 @@ public class WinMidiOut extends RtMidiOut {
 
     @Override
     public synchronized void sendMessage(byte[] message) {
-        if (!connected || hMidiOut.equals(MemorySegment.NULL)) return;
+        if (!connected || hMidiOut == 0) return;
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment msgSegment = arena.allocateFrom(ValueLayout.JAVA_BYTE, message);
             sendMessage(msgSegment);
@@ -131,7 +131,7 @@ public class WinMidiOut extends RtMidiOut {
 
     @Override
     public synchronized void sendMessage(MemorySegment message) {
-        if (!connected || hMidiOut.equals(MemorySegment.NULL)) return;
+        if (!connected || hMidiOut == 0) return;
         
         long len = message.byteSize();
         if (len <= 3 && (message.get(ValueLayout.JAVA_BYTE, 0) & 0xFF) < 0xF0) {

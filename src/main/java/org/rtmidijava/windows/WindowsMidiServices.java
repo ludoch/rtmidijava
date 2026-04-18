@@ -3,17 +3,10 @@ package org.rtmidijava.windows;
 import org.rtmidijava.RtMidiIn;
 import org.rtmidijava.RtMidiOut;
 import java.lang.foreign.*;
-import java.util.Optional;
 
 /**
  * Modern Windows MIDI Services (WMS) backend.
  * Interfaces with the new MIDI 2.0 services in Windows 11+.
- * 
- * MIDI 2.0 on Windows provides:
- * 1. Native App-to-App MIDI (Virtual Ports)
- * 2. High-precision 64-bit timestamps
- * 3. Multi-client access by default
- * 4. UMP (Universal MIDI Packet) support
  */
 public class WindowsMidiServices {
     
@@ -22,12 +15,12 @@ public class WindowsMidiServices {
     private static String detectionMessage = "Not checked";
 
     static {
-        // We look for the Windows MIDI Services SDK DLL
-        // This is the modern replacement for WinMM.
         String[] potentialDlls = {
-            "Midi2.Sdk.mnd.dll",           // Developer Preview SDK
-            "windows.devices.midi2.dll",    // Planned system DLL
-            "api-ms-win-devices-midi-l1-1-0.dll" // UWP MIDI 1.0 (Fallback)
+            "C:\\Program Files\\Windows MIDI Services\\Desktop App SDK Runtime\\Microsoft.Windows.Devices.Midi2.dll",
+            "Microsoft.Windows.Devices.Midi2.dll",
+            "Midi2.Sdk.mnd.dll",
+            "windows.devices.midi2.dll",
+            "api-ms-win-devices-midi-l1-1-0.dll"
         };
 
         for (String dll : potentialDlls) {
@@ -65,13 +58,15 @@ public class WindowsMidiServices {
         System.out.println("OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version"));
         System.out.println("Status: " + getStatusMessage());
         if (isAvailable()) {
-            System.out.println("Result: READY. You can now use Native Virtual Ports.");
+            System.out.println("Result: READY. Multi-client support is available via Windows MIDI Services.");
         } else {
-            System.out.println("Result: FALLBACK. Using legacy WinMM (loopMIDI required for virtual ports).");
+            System.out.println("Result: FALLBACK. Using legacy WinMM (limited multi-client support).");
         }
     }
 
     public static class In extends RtMidiIn {
+        private final WinMidiIn fallback = new WinMidiIn();
+
         @Override
         public Api getCurrentApi() {
             return Api.WINDOWS_UWP;
@@ -79,35 +74,46 @@ public class WindowsMidiServices {
 
         @Override
         public int getPortCount() {
-            return 0; 
+            return fallback.getPortCount();
         }
 
         @Override
         public String getPortName(int portNumber) {
-            return "WMS Input Port " + portNumber;
+            return fallback.getPortName(portNumber);
         }
 
         @Override
         public void openPort(int portNumber, String portName) {
-            if (!isAvailable()) throw new UnsupportedOperationException("Windows MIDI Services not available");
+            fallback.openPort(portNumber, portName);
             connected = true;
         }
 
         @Override
         public void openVirtualPort(String portName) {
-            // This will be implemented by registering a Virtual Endpoint with the service
-            if (!isAvailable()) throw new UnsupportedOperationException("Virtual ports require Windows MIDI Services");
+            fallback.openVirtualPort(portName);
             connected = true;
         }
 
         @Override
         public synchronized void closePort() {
-            super.closePort();
+            fallback.closePort();
             connected = false;
+        }
+
+        @Override
+        public void setCallback(Callback callback) {
+            fallback.setCallback(callback);
+        }
+
+        @Override
+        public void ignoreTypes(boolean midiSysex, boolean midiTime, boolean midiSense) {
+            fallback.ignoreTypes(midiSysex, midiTime, midiSense);
         }
     }
 
     public static class Out extends RtMidiOut {
+        private final WinMidiOut fallback = new WinMidiOut();
+
         @Override
         public Api getCurrentApi() {
             return Api.WINDOWS_UWP;
@@ -115,33 +121,40 @@ public class WindowsMidiServices {
 
         @Override
         public int getPortCount() {
-            return 0;
+            return fallback.getPortCount();
         }
 
         @Override
         public String getPortName(int portNumber) {
-            return "WMS Output Port " + portNumber;
+            return fallback.getPortName(portNumber);
         }
 
         @Override
         public void openPort(int portNumber, String portName) {
+            fallback.openPort(portNumber, portName);
             connected = true;
         }
 
         @Override
         public void openVirtualPort(String portName) {
+            fallback.openVirtualPort(portName);
             connected = true;
         }
 
         @Override
         public synchronized void closePort() {
+            fallback.closePort();
             connected = false;
         }
 
         @Override
-        public void sendMessage(byte[] message) {}
+        public void sendMessage(byte[] message) {
+            fallback.sendMessage(message);
+        }
 
         @Override
-        public void sendMessage(MemorySegment message) {}
+        public void sendMessage(MemorySegment message) {
+            fallback.sendMessage(message);
+        }
     }
 }

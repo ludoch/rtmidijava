@@ -56,21 +56,21 @@ public class WinMidiApi {
     public static final MethodHandle midiOutGetNumDevs = downcall("midiOutGetNumDevs", FunctionDescriptor.of(ValueLayout.JAVA_INT));
     public static final MethodHandle midiOutGetDevCaps = downcall("midiOutGetDevCapsW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle midiOutOpen = downcall("midiOutOpen", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiOutClose = downcall("midiOutClose", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle midiOutShortMsg = downcall("midiOutShortMsg", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiOutLongMsg = downcall("midiOutLongMsg", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiOutPrepareHeader = downcall("midiOutPrepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiOutUnprepareHeader = downcall("midiOutUnprepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiOutClose = downcall("midiOutClose", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+    public static final MethodHandle midiOutShortMsg = downcall("midiOutShortMsg", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiOutLongMsg = downcall("midiOutLongMsg", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiOutPrepareHeader = downcall("midiOutPrepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiOutUnprepareHeader = downcall("midiOutUnprepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     public static final MethodHandle midiInGetNumDevs = downcall("midiInGetNumDevs", FunctionDescriptor.of(ValueLayout.JAVA_INT));
     public static final MethodHandle midiInGetDevCaps = downcall("midiInGetDevCapsW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle midiInOpen = downcall("midiInOpen", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiInClose = downcall("midiInClose", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle midiInStart = downcall("midiInStart", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle midiInStop = downcall("midiInStop", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle midiInAddBuffer = downcall("midiInAddBuffer", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiInPrepareHeader = downcall("midiInPrepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle midiInUnprepareHeader = downcall("midiInUnprepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiInClose = downcall("midiInClose", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+    public static final MethodHandle midiInStart = downcall("midiInStart", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+    public static final MethodHandle midiInStop = downcall("midiInStop", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+    public static final MethodHandle midiInAddBuffer = downcall("midiInAddBuffer", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiInPrepareHeader = downcall("midiInPrepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle midiInUnprepareHeader = downcall("midiInUnprepareHeader", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     public static final MethodHandle midiOutGetErrorText = downcall("midiOutGetErrorTextW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle midiInGetErrorText = downcall("midiInGetErrorTextW", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));

@@ -8,6 +8,7 @@ import org.rtmidijava.macos.CoreMidiIn;
 import org.rtmidijava.macos.CoreMidiOut;
 import org.rtmidijava.windows.WinMidiIn;
 import org.rtmidijava.windows.WinMidiOut;
+import org.rtmidijava.windows.WindowsMidiServices;
 
 /**
  * Factory class for creating RtMidi instances.
@@ -55,6 +56,9 @@ public class RtMidiFactory {
     public static RtMidiIn createDefaultIn() {
         String os = System.getProperty("os.name").toLowerCase();
         if (os.contains("win")) {
+            if (WindowsMidiServices.isAvailable()) {
+                return new WindowsMidiServices.In();
+            }
             return new WinMidiIn();
         } else if (os.contains("mac")) {
             return new CoreMidiIn();
@@ -68,6 +72,9 @@ public class RtMidiFactory {
     public static RtMidiOut createDefaultOut() {
         String os = System.getProperty("os.name").toLowerCase();
         if (os.contains("win")) {
+            if (WindowsMidiServices.isAvailable()) {
+                return new WindowsMidiServices.Out();
+            }
             return new WinMidiOut();
         } else if (os.contains("mac")) {
             return new CoreMidiOut();

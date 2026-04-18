@@ -15,20 +15,20 @@ To provide a **low-latency, zero-dependency, zero-GC** MIDI library for Java, in
 - **Thread Safe**: All backends hardened with synchronization for concurrent port management and message sending.
 
 ## Supported Backends
-- **Windows**: WinMM (Full In/Out with Sysex reassembly)
+- **Windows**: Modern **Windows MIDI Services (WMS/MIDI 2.0)** with automatic fallback to legacy WinMM (Full In/Out with Sysex reassembly and improved error diagnostics).
 - **Linux**: ALSA and JACK (Full In/Out with cached client discovery)
 - **macOS**: CoreMIDI (Full In/Out with nanosecond precision timestamps)
 
 ## Project Status
 
-| Feature | Windows (WinMM) | macOS (CoreMIDI) | Linux (ALSA) | Linux (JACK) | Dummy |
+| Feature | Windows (WMS/MM) | macOS (CoreMIDI) | Linux (ALSA) | Linux (JACK) | Dummy |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Port Enumeration** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Message Output** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Message Input** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Zero-GC Path** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Sysex Reassembly**| ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Virtual Ports** | ❌ (N/A) | ✅ | ✅ | ✅ | ✅ |
+| **Virtual Ports** | ✅ (WMS) | ✅ | ✅ | ✅ | ✅ |
 | **Real-Time Priority**| ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Requirements

@@ -9,7 +9,7 @@ import java.lang.invoke.MethodType;
 import static org.rtmidijava.windows.WinMidiApi.*;
 
 public class WinMidiIn extends RtMidiIn {
-    private MemorySegment hMidiIn = MemorySegment.NULL;
+    private long hMidiIn = 0;
     private long startTime;
     private Arena instanceArena;
     private static final int RT_SYSEX_BUFFER_SIZE = 1024;
@@ -33,8 +33,7 @@ public class WinMidiIn extends RtMidiIn {
         }
     }
 
-    private synchronized void midiInProc(MemorySegment hMidiIn, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
-        // System.out.println("WinMidiIn::midiInProc: wMsg=" + wMsg);
+    private synchronized void midiInProc(MemorySegment handle, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
         if (!connected) return;
         double timestamp = (dwParam2 - startTime) / 1000.0;
         if (wMsg == MIM_DATA) {
@@ -68,7 +67,7 @@ public class WinMidiIn extends RtMidiIn {
                         sysexOffset = 0;
                     }
                 }
-                midiInAddBuffer.invokeExact(hMidiIn.reinterpret(8), header, (int) MIDIHDR.byteSize());
+                int resAdd = (int) midiInAddBuffer.invokeExact(hMidiIn, header, (int) MIDIHDR.byteSize());
             } catch (Throwable t) {}
         }
     }
@@ -172,17 +171,20 @@ public class WinMidiIn extends RtMidiIn {
             if (result != 0) {
                 String errMsg = getErrorText(result);
                 instanceArena.close();
-                throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: " + errMsg, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
+                
+                String extra = "";
+                if (result == 4) { // MMSYSERR_ALLOCATED
+                    extra = "\nHint: This port is already in use by another application. Windows WinMM is not multi-client. Please install Windows MIDI Services (MIDI 2.0) for multi-client support.";
+                }
+                
+                throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: " + errMsg + extra, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
             }
             
-            hMidiIn = phmi.get(ValueLayout.ADDRESS, 0).reinterpret(8);
+            hMidiIn = phmi.get(ValueLayout.ADDRESS, 0).address();
             
             sysexNativeBuffer = instanceArena.allocate(8192);
 
-            // System.out.println("WinMidiIn::openPort: Starting device...");
             startTime = System.currentTimeMillis();
-            int resStart = (int) midiInStart.invokeExact(hMidiIn);
-            if (resStart != 0) throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error starting input device (" + resStart + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
 
             // Allocate and add Sysex buffers
             for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
@@ -195,12 +197,13 @@ public class WinMidiIn extends RtMidiIn {
                 
                 int resPrep = (int) midiInPrepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
                 if (resPrep == 0) {
-                    // System.out.println("WinMidiIn::openPort: Sysex buffer " + i + " prepared.");
                     int resAdd = (int) midiInAddBuffer.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
-                    if (resAdd != 0) {
-                        // System.out.println("WinMidiIn::openPort: Warning - Error adding sysex buffer " + i + " (" + resAdd + ")");
-                    }
                 }
+            }
+
+            int resStart = (int) midiInStart.invokeExact(hMidiIn);
+            if (resStart != 0) {
+                throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error starting input device (" + resStart + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
             }
 
             try {
@@ -227,7 +230,7 @@ public class WinMidiIn extends RtMidiIn {
         if (worker != null) {
             try { worker.join(500); } catch (InterruptedException e) {}
         }
-        if (!hMidiIn.equals(MemorySegment.NULL)) {
+        if (hMidiIn != 0) {
             try {
                 int resStop = (int) midiInStop.invokeExact(hMidiIn);
                 for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
@@ -236,7 +239,7 @@ public class WinMidiIn extends RtMidiIn {
                 int resClose = (int) midiInClose.invokeExact(hMidiIn);
             } catch (Throwable t) {
             }
-            hMidiIn = MemorySegment.NULL;
+            hMidiIn = 0;
         }
         if (instanceArena != null) {
             instanceArena.close();
