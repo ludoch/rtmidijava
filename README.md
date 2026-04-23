@@ -59,26 +59,16 @@ If detected, the library will automatically unlock `openVirtualPort()` support. 
 
 ## Installation (Maven)
 
-To use RtMidiJava in your project, add the GitHub Packages repository to your `pom.xml`:
-
-```xml
-<repositories>
-    <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/ludoch/rtmidijava</url>
-    </repository>
-</repositories>
-```
-
-Then add the dependency:
+RtMidiJava is available on Maven Central. Add the dependency to your `pom.xml`:
 
 ```xml
 <dependency>
-    <groupId>org.rtmidijava</groupId>
+    <groupId>io.github.ludoch</groupId>
     <artifactId>rtmidijava</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.2</version>
 </dependency>
 ```
+
 
 ### Developer Note: FFM Access
 Since this library uses the Foreign Function & Memory API, you must run your application with the following JVM flag:
@@ -110,7 +100,7 @@ See `src/main/java/org/rtmidijava/examples/` for complete examples of `MidiMonit
 ### Bumping the Version
 To release a new version:
 1. Update the version in `pom.xml` (e.g., from `1.0.1-SNAPSHOT` to `1.0.1`).
-2. Run `mvn deploy -DskipTests` to push the artifact to GitHub Packages.
+2. Run the **Deploy to Maven Central** workflow via GitHub Actions (or `mvn deploy`).
 3. Update the version to the next snapshot (e.g., `1.0.2-SNAPSHOT`).
 
 ### Continuous Integration

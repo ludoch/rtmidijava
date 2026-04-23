@@ -2,7 +2,7 @@ package org.rtmidijava;
 
 /**
  * Base class for RtMidiJava, a pure Java 25 implementation of the RtMidi API.
- * Uses Foreign Function & Memory (FFM) API to interface with OS-native MIDI stacks.
+ * Uses Foreign Function &amp; Memory (FFM) API to interface with OS-native MIDI stacks.
  */
 public abstract class RtMidi {
     /**

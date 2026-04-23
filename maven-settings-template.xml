@@ -5,9 +5,23 @@
 
   <servers>
     <server>
-      <id>github</id>
-      <username>YOUR_GITHUB_USERNAME</username>
-      <password>YOUR_GITHUB_TOKEN</password>
+      <id>central</id>
+      <username>MAVEN_CENTRAL_TOKEN_USERNAME</username>
+      <password>MAVEN_CENTRAL_TOKEN_PASSWORD</password>
     </server>
   </servers>
+
+  <profiles>
+    <profile>
+      <id>gpg</id>
+      <properties>
+        <gpg.executable>gpg</gpg.executable>
+        <gpg.passphrase>YOUR_GPG_PASSPHRASE</gpg.passphrase>
+      </properties>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>gpg</activeProfile>
+  </activeProfiles>
 </settings>
