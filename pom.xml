@@ -5,7 +5,7 @@
 
     <groupId>io.github.ludoch</groupId>
     <artifactId>rtmidijava</artifactId>
-    <version>1.0.2-SNAPSHOT</version>
+    <version>1.0.3-SNAPSHOT</version>
 
     <name>RtMidiJava</name>
     <description>A Java JEP 454 (Foreign Function &amp; Memory API) binding for RtMidi.</description>
@@ -127,6 +127,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
                 </configuration>
             </plugin>
         </plugins>
