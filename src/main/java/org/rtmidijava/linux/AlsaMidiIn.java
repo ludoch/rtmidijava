@@ -47,7 +47,7 @@ public class AlsaMidiIn extends RtMidiIn {
         try (Arena arena = Arena.ofConfined()) {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
-                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, 0);
+                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, SND_SEQ_NONBLOCK);
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
@@ -87,7 +87,7 @@ public class AlsaMidiIn extends RtMidiIn {
         try (Arena arena = Arena.ofConfined()) {
             if (seqHandle.equals(MemorySegment.NULL)) {
                 MemorySegment pHandle = arena.allocate(ValueLayout.ADDRESS);
-                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, 0);
+                int result = (int) snd_seq_open.invokeExact(pHandle, arena.allocateFrom("default"), SND_SEQ_OPEN_INPUT, SND_SEQ_NONBLOCK);
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
@@ -126,24 +126,34 @@ public class AlsaMidiIn extends RtMidiIn {
                 int totalCount = alsaCount + 1;
                 MemorySegment pollFds = arena.allocate(UnixApi.pollfd, totalCount);
                 
+                MemorySegment pEv = arena.allocate(ValueLayout.ADDRESS);
+                MemorySegment drainBuf = arena.allocate(8);
                 while (connected) {
-                    int _ = (int) snd_seq_poll_descriptors.invokeExact(seqHandle, pollFds, alsaCount, UnixApi.POLLIN);
-                    
-                    MemorySegment pipeFd = pollFds.asSlice(alsaCount * UnixApi.pollfd.byteSize());
-                    pipeFd.set(ValueLayout.JAVA_INT, 0, pipeRead);
-                    pipeFd.set(ValueLayout.JAVA_SHORT, 4, UnixApi.POLLIN);
-                    pipeFd.set(ValueLayout.JAVA_SHORT, 6, (short)0);
+                    // Fetch from the sequencer fd into the library buffer (arg 1 = fetch).
+                    // When nothing is pending, block in poll() until an event or the
+                    // shutdown pipe wakes us.
+                    int pending = (int) snd_seq_event_input_pending.invokeExact(seqHandle, 1);
+                    if (pending == 0) {
+                        int _ = (int) snd_seq_poll_descriptors.invokeExact(seqHandle, pollFds, alsaCount, UnixApi.POLLIN);
 
-                    int pollResult = (int) UnixApi.poll.invokeExact(pollFds, (long) totalCount, -1);
-                    if (pollResult <= 0) continue;
+                        MemorySegment pipeFd = pollFds.asSlice(alsaCount * UnixApi.pollfd.byteSize());
+                        pipeFd.set(ValueLayout.JAVA_INT, 0, pipeRead);
+                        pipeFd.set(ValueLayout.JAVA_SHORT, 4, UnixApi.POLLIN);
+                        pipeFd.set(ValueLayout.JAVA_SHORT, 6, (short) 0);
 
-                    if ((pipeFd.get(ValueLayout.JAVA_SHORT, 6) & UnixApi.POLLIN) != 0) break;
-
-                    MemorySegment pEv = arena.allocate(ValueLayout.ADDRESS);
-                    while ((int) snd_seq_event_input.invokeExact(seqHandle, pEv) >= 0) {
-                        MemorySegment ev = pEv.get(ValueLayout.ADDRESS, 0).reinterpret(snd_seq_event_t.byteSize());
-                        parseAndDispatch(ev);
+                        int pollResult = (int) UnixApi.poll.invokeExact(pollFds, (long) totalCount, -1);
+                        if (pollResult > 0 && (pipeFd.get(ValueLayout.JAVA_SHORT, 6) & UnixApi.POLLIN) != 0) {
+                            // Shutdown signalled: drain the pipe and exit the loop.
+                            long _ = (long) UnixApi.read.invokeExact(pipeRead, drainBuf, 8L);
+                            break;
+                        }
+                        continue;
                     }
+
+                    int result = (int) snd_seq_event_input.invokeExact(seqHandle, pEv);
+                    if (result <= 0) continue; // -EAGAIN / -ENOSPC (overrun) / error
+                    MemorySegment ev = pEv.get(ValueLayout.ADDRESS, 0).reinterpret(snd_seq_event_t.byteSize());
+                    parseAndDispatch(ev);
                 }
             } catch (Throwable t) {}
         });
@@ -205,12 +215,25 @@ public class AlsaMidiIn extends RtMidiIn {
         if (!connected) return;
         connected = false;
 
+        // Wake the worker out of poll() via the shutdown pipe.
         if (pipeWrite != -1) {
             try (Arena arena = Arena.ofConfined()) {
                 MemorySegment b = arena.allocate(1);
                 b.set(ValueLayout.JAVA_BYTE, 0, (byte) 1);
                 long _ = (long) UnixApi.write.invokeExact(pipeWrite, b, 1L);
             } catch (Throwable t) {}
+        }
+
+        // Join the worker BEFORE freeing native resources: otherwise it may
+        // still be inside snd_seq_event_input()/poll() on a freed handle/fd,
+        // which crashes the JVM (use-after-free).
+        if (worker != null) {
+            try {
+                worker.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            worker = null;
         }
 
         if (!seqHandle.equals(MemorySegment.NULL)) {
@@ -227,13 +250,6 @@ public class AlsaMidiIn extends RtMidiIn {
             } catch (Throwable t) {}
             pipeRead = -1;
             pipeWrite = -1;
-        }
-        
-        if (worker != null) {
-            try {
-                worker.join(500);
-            } catch (InterruptedException e) {}
-            worker = null;
         }
     }
 

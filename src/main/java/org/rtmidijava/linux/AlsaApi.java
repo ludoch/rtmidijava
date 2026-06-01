@@ -81,6 +81,9 @@ public class AlsaApi {
     public static final MethodHandle snd_seq_event_input = downcall("snd_seq_event_input",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
+    public static final MethodHandle snd_seq_event_input_pending = downcall("snd_seq_event_input_pending",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     public static final MethodHandle snd_seq_client_info_sizeof = downcall("snd_seq_client_info_sizeof",
         FunctionDescriptor.of(ValueLayout.JAVA_LONG));
 

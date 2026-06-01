@@ -81,10 +81,12 @@ public class RtMidiTest {
         if (outPort != -1) {
             midiOut.openPort(outPort, "Test Out");
             byte[] msg = new byte[]{(byte)0x90, 0x3C, 0x7F};
-            midiOut.sendMessage(msg);
-            
-            // Wait for callback with timeout
+
+            // Wait for callback, resending each iteration: the ALSA/CoreMIDI port
+            // subscription may not have propagated when the first message is sent,
+            // and a single lost message would be undetectable.
             for (int i = 0; i < 100; i++) {
+                midiOut.sendMessage(msg);
                 byte[] data = receivedData.get();
                 if (data != null) break;
                 if (midiOut.getCurrentApi() == RtMidi.Api.MACOS_CORE) {
