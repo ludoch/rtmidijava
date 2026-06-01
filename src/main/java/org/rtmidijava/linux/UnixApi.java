@@ -60,7 +60,7 @@ public class UnixApi {
             MemorySegment param = arena.allocate(sched_param);
             param.set(ValueLayout.JAVA_INT, 0, priority);
             // We try SCHED_RR for real-time
-            pthread_setschedparam.invokeExact(self, SCHED_RR, param);
+            int _ = (int) pthread_setschedparam.invokeExact(self, SCHED_RR, param);
         } catch (Throwable t) {
             // Might fail if not root or lacking CAP_SYS_NICE
         }

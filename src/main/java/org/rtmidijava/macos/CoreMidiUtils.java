@@ -71,7 +71,7 @@ public class CoreMidiUtils {
         double factor = 1.0;
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment info = arena.allocate(mach_timebase_info);
-            mach_timebase_info_func.invokeExact(info);
+            int _ = (int) mach_timebase_info_func.invokeExact(info);
             int numer = info.get(ValueLayout.JAVA_INT, 0);
             int denom = info.get(ValueLayout.JAVA_INT, 4);
             factor = (double) numer / denom / 1_000_000_000.0;
@@ -82,7 +82,7 @@ public class CoreMidiUtils {
     public static void runRunLoop(double seconds) {
         try {
             if (kCFRunLoopDefaultMode != null && !kCFRunLoopDefaultMode.equals(MemorySegment.NULL)) {
-                cfRunLoopRunInMode.invokeExact(kCFRunLoopDefaultMode, seconds, (byte) 1);
+                int _ = (int) cfRunLoopRunInMode.invokeExact(kCFRunLoopDefaultMode, seconds, (byte) 1);
             }
         } catch (Throwable t) {}
     }

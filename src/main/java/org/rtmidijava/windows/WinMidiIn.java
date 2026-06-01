@@ -12,9 +12,7 @@ public class WinMidiIn extends RtMidiIn {
     private long hMidiIn = 0;
     private long startTime;
     private Arena instanceArena;
-    private static final int RT_SYSEX_BUFFER_SIZE = 1024;
-    private static final int RT_SYSEX_BUFFER_COUNT = 4;
-    private MemorySegment[] sysexBuffers = new MemorySegment[RT_SYSEX_BUFFER_COUNT];
+    private MemorySegment[] sysexBuffers;
     private MemorySegment upcallStub;
     private MemorySegment sysexNativeBuffer;
     private int sysexOffset = 0;
@@ -177,7 +175,8 @@ public class WinMidiIn extends RtMidiIn {
                     extra = "\nHint: This port is already in use by another application. Windows WinMM is not multi-client. Please install Windows MIDI Services (MIDI 2.0) for multi-client support.";
                 }
                 
-                throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: " + errMsg + extra, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
+                error(org.rtmidijava.RtMidiException.Type.DRIVER_ERROR, "WinMidiIn::openPort: " + errMsg + extra);
+                return;
             }
             
             hMidiIn = phmi.get(ValueLayout.ADDRESS, 0).address();
@@ -186,13 +185,14 @@ public class WinMidiIn extends RtMidiIn {
 
             startTime = System.currentTimeMillis();
 
-            // Allocate and add Sysex buffers
-            for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
+            // Allocate and add Sysex buffers, honoring setBufferSize(size, count).
+            sysexBuffers = new MemorySegment[bufferCount];
+            for (int i = 0; i < bufferCount; i++) {
                 sysexBuffers[i] = instanceArena.allocate(MIDIHDR);
                 sysexBuffers[i].fill((byte) 0);
-                MemorySegment data = instanceArena.allocate(RT_SYSEX_BUFFER_SIZE);
+                MemorySegment data = instanceArena.allocate(bufferSize);
                 sysexBuffers[i].set(ValueLayout.ADDRESS, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("lpData")), data);
-                sysexBuffers[i].set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), RT_SYSEX_BUFFER_SIZE);
+                sysexBuffers[i].set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwBufferLength")), bufferSize);
                 sysexBuffers[i].set(ValueLayout.JAVA_INT, MIDIHDR.byteOffset(MemoryLayout.PathElement.groupElement("dwFlags")), 0);
                 
                 int resPrep = (int) midiInPrepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
@@ -203,7 +203,11 @@ public class WinMidiIn extends RtMidiIn {
 
             int resStart = (int) midiInStart.invokeExact(hMidiIn);
             if (resStart != 0) {
-                throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: Error starting input device (" + resStart + ")", org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
+                instanceArena.close();
+                instanceArena = null;
+                hMidiIn = 0;
+                error(org.rtmidijava.RtMidiException.Type.DRIVER_ERROR, "WinMidiIn::openPort: Error starting input device (" + resStart + ")");
+                return;
             }
 
             try {
@@ -214,14 +218,15 @@ public class WinMidiIn extends RtMidiIn {
         } catch (org.rtmidijava.RtMidiException e) {
             throw e;
         } catch (Throwable t) {
-            if (instanceArena != null) instanceArena.close();
-            throw new org.rtmidijava.RtMidiException("WinMidiIn::openPort: " + t.getMessage(), org.rtmidijava.RtMidiException.Type.SYSTEM_ERROR);
+            if (instanceArena != null) { instanceArena.close(); instanceArena = null; }
+            hMidiIn = 0;
+            error(org.rtmidijava.RtMidiException.Type.SYSTEM_ERROR, "WinMidiIn::openPort: " + t.getMessage());
         }
     }
 
     @Override
     public void openVirtualPort(String portName) {
-        throw new UnsupportedOperationException("Virtual ports not supported on Windows WinMM");
+        error(org.rtmidijava.RtMidiException.Type.INVALID_USE, "Virtual ports not supported on Windows WinMM");
     }
 
     @Override
@@ -233,7 +238,7 @@ public class WinMidiIn extends RtMidiIn {
         if (hMidiIn != 0) {
             try {
                 int resStop = (int) midiInStop.invokeExact(hMidiIn);
-                for (int i = 0; i < RT_SYSEX_BUFFER_COUNT; i++) {
+                for (int i = 0; sysexBuffers != null && i < sysexBuffers.length; i++) {
                     int resUnprep = (int) midiInUnprepareHeader.invokeExact(hMidiIn, sysexBuffers[i], (int) MIDIHDR.byteSize());
                 }
                 int resClose = (int) midiInClose.invokeExact(hMidiIn);

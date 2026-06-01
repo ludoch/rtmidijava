@@ -1,6 +1,7 @@
 package org.rtmidijava.linux;
 
 import org.rtmidijava.RtMidiOut;
+import org.rtmidijava.RtMidiException;
 import java.lang.foreign.*;
 import java.util.List;
 
@@ -35,7 +36,8 @@ public class AlsaMidiOut extends RtMidiOut {
     public synchronized void openPort(int portNumber, String portName) {
         List<AlsaPortInfo> ports = getPorts(false);
         if (portNumber < 0 || portNumber >= ports.size()) {
-            throw new RuntimeException("Invalid port number");
+            error(RtMidiException.Type.INVALID_PARAMETER, "Invalid port number");
+            return;
         }
         AlsaPortInfo dest = ports.get(portNumber);
 
@@ -47,26 +49,27 @@ public class AlsaMidiOut extends RtMidiOut {
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
-                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    error(RtMidiException.Type.DRIVER_ERROR, "snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    return;
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
 
                 // Pro-Audio: Increase client pool for large Sysex
-                snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
+                int _ = (int) snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
                 
                 // Pre-allocate event struct
                 eventTemplate = outArena.allocate(snd_seq_event_t);
             }
             
-            snd_seq_set_client_name.invokeExact(seqHandle, outArena.allocateFrom("RtMidiJava Client"));
+            int _ = (int) snd_seq_set_client_name.invokeExact(seqHandle, outArena.allocateFrom(clientName));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, outArena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
-            snd_seq_connect_to.invokeExact(seqHandle, vPort, dest.client, dest.port);
+            int _ = (int) snd_seq_connect_to.invokeExact(seqHandle, vPort, dest.client, dest.port);
             
             connected = true;
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -80,22 +83,23 @@ public class AlsaMidiOut extends RtMidiOut {
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
-                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    error(RtMidiException.Type.DRIVER_ERROR, "snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    return;
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 
                 // Pro-Audio: Increase client pool for large Sysex
-                snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
+                int _ = (int) snd_seq_set_client_pool_output.invokeExact(seqHandle, 4096L);
                 eventTemplate = outArena.allocate(snd_seq_event_t);
             }
             
-            snd_seq_set_client_name.invokeExact(seqHandle, outArena.allocateFrom("RtMidiJava Client"));
+            int _ = (int) snd_seq_set_client_name.invokeExact(seqHandle, outArena.allocateFrom(clientName));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, outArena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
             connected = true;
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -103,7 +107,7 @@ public class AlsaMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (!seqHandle.equals(MemorySegment.NULL)) {
             try {
-                snd_seq_close.invokeExact(seqHandle);
+                int _ = (int) snd_seq_close.invokeExact(seqHandle);
             } catch (Throwable t) {}
             seqHandle = MemorySegment.NULL;
         }
@@ -157,11 +161,14 @@ public class AlsaMidiOut extends RtMidiOut {
                 }
             }
 
+            // Deliver immediately (no queue scheduling) to all subscribers of our source port,
+            // mirroring snd_seq_ev_set_direct() + snd_seq_ev_set_subs().
+            eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("queue")), SND_SEQ_QUEUE_DIRECT);
             eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("source"), MemoryLayout.PathElement.groupElement("port")), (byte) vPort);
-            eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("client")), (byte) 254);
-            eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("port")), (byte) 254);
+            eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("client")), SND_SEQ_ADDRESS_SUBSCRIBERS);
+            eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("port")), SND_SEQ_ADDRESS_UNKNOWN);
 
-            snd_seq_event_output_direct.invokeExact(seqHandle, eventTemplate);
+            int _ = (int) snd_seq_event_output_direct.invokeExact(seqHandle, eventTemplate);
         } catch (Throwable t) {}
     }
 }

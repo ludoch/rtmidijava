@@ -114,7 +114,7 @@ public class CoreMidiOut extends RtMidiOut {
             preallocatedPacketList = coreMidiArena.allocate(PACKET_LIST_SIZE);
             
             MemorySegment pClient = coreMidiArena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", coreMidiArena);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString(clientName, coreMidiArena);
             int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
             checkStatus(status, "MIDIClientCreate failed");
             client = pClient.get(ValueLayout.JAVA_INT, 0);
@@ -130,7 +130,7 @@ public class CoreMidiOut extends RtMidiOut {
             destination = (int) midiGetDestination.invokeExact((long) portNumber);
             connected = true;
         } catch (Throwable t) {
-            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -142,7 +142,7 @@ public class CoreMidiOut extends RtMidiOut {
              preallocatedPacketList = coreMidiArena.allocate(PACKET_LIST_SIZE);
              
              MemorySegment pClient = coreMidiArena.allocate(ValueLayout.JAVA_INT);
-             MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Client", coreMidiArena);
+             MemorySegment cfClientName = CoreMidiUtils.createCFString(clientName, coreMidiArena);
              int status = (int) midiClientCreate.invokeExact(cfClientName, MemorySegment.NULL, MemorySegment.NULL, pClient);
              checkStatus(status, "MIDIClientCreate failed");
              client = pClient.get(ValueLayout.JAVA_INT, 0);
@@ -161,7 +161,7 @@ public class CoreMidiOut extends RtMidiOut {
              port = 0;
              connected = true;
         } catch (Throwable t) {
-            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -169,7 +169,7 @@ public class CoreMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (client != 0) {
             try {
-                midiClientDispose.invokeExact(client);
+                int _ = (int) midiClientDispose.invokeExact(client);
             } catch (Throwable t) {}
             client = 0;
             port = 0;
@@ -185,8 +185,6 @@ public class CoreMidiOut extends RtMidiOut {
     @Override
     public synchronized void sendMessage(byte[] message) {
         if (!connected) return;
-        // Keep this print as it seems to ensure enough delay/barrier for CoreMIDI
-        System.out.println("DEBUG: CoreMidiOut.sendMessage bytes=" + message.length);
         try (Arena arena = Arena.ofConfined()) {
             sendMessage(arena.allocateFrom(ValueLayout.JAVA_BYTE, message));
         }
@@ -198,18 +196,17 @@ public class CoreMidiOut extends RtMidiOut {
         try {
             long msgLen = message.byteSize();
             int totalNeeded = 4 + 8 + 2 + (int)msgLen;
-            MemorySegment packetList;
-            
+
             if (totalNeeded <= PACKET_LIST_SIZE) {
-                packetList = preallocatedPacketList;
+                sendInternal(preallocatedPacketList, message);
             } else {
-                // Fallback for huge messages
-                packetList = Arena.ofConfined().allocate(totalNeeded);
+                // Fallback for huge messages; the temporary buffer is freed on close.
+                try (Arena big = Arena.ofConfined()) {
+                    sendInternal(big.allocate(totalNeeded), message);
+                }
             }
-            
-            sendInternal(packetList, message);
         } catch (Throwable t) {
-            t.printStackTrace();
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -231,11 +228,8 @@ public class CoreMidiOut extends RtMidiOut {
             status = (int) midiReceived.invokeExact(destination, packetList);
         }
         
-        if (status == 0) {
-            System.out.println("DEBUG: Send SUCCESS");
-        } else {
-            System.out.println("DEBUG: Send FAILED with status " + status);
+        if (status != 0) {
+            throw new RtMidiException("CoreMidiOut::sendMessage failed (OSStatus: " + status + ")", RtMidiException.Type.DRIVER_ERROR);
         }
-        System.out.flush();
     }
 }

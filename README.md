@@ -95,6 +95,27 @@ midiIn.setFastCallback((timeStamp, segment) -> {
 
 See `src/main/java/org/rtmidijava/examples/` for complete examples of `MidiMonitor` and `MidiSender`.
 
+### API Introspection
+The static helpers ported from upstream RtMidi let you query the library and the
+available backends without constructing a port:
+
+```java
+RtMidi.getVersion();                                  // e.g. "1.0.2"
+RtMidi.getCompiledApi();                               // List<Api> usable on this OS
+RtMidi.getApiName(RtMidi.Api.LINUX_ALSA);              // "alsa" (stable identifier)
+RtMidi.getApiDisplayName(RtMidi.Api.LINUX_ALSA);       // "ALSA"
+RtMidi.getCompiledApiByName("alsa");                   // RtMidi.Api.LINUX_ALSA
+```
+
+You can also set the client name (used to group ports), register an error
+callback, and tune the input buffer before opening a port:
+
+```java
+RtMidiIn in = RtMidiFactory.createIn(RtMidi.Api.LINUX_ALSA, "MyApp");
+in.setErrorCallback((type, message) -> log.warn("{}: {}", type, message));
+in.setBufferSize(4096, 4); // honored by backends with manual buffers (Windows MM)
+```
+
 ## Development & Releases
 
 ### Bumping the Version
@@ -108,6 +129,11 @@ This library is validated via an on-demand GitHub Action across:
 - `windows-latest`
 - `macos-latest`
 - `ubuntu-latest` (including ALSA and JACK setup)
+
+## Upstream Parity
+For a detailed comparison against the upstream RtMidi C/C++ API — including the
+implemented surface, known gaps, and platform caveats — see
+[`docs/GAP_ANALYSIS.md`](docs/GAP_ANALYSIS.md).
 
 ## Credits
 This is a Java implementation of the concepts and API established by the [RtMidi](https://github.com/thestk/rtmidi) C++ library.

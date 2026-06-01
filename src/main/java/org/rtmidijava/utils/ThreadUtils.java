@@ -64,7 +64,7 @@ public class ThreadUtils {
         try {
             if (setThreadPriority != null) { // Windows
                 MemorySegment handle = (MemorySegment) getCurrentThread.invokeExact();
-                setThreadPriority.invokeExact(handle, THREAD_PRIORITY_TIME_CRITICAL);
+                int _ = (int) setThreadPriority.invokeExact(handle, THREAD_PRIORITY_TIME_CRITICAL);
             } else if (thread_policy_set != null) { // Mac
                 int thread = (int) thread_self.invokeExact();
                 try (Arena arena = Arena.ofConfined()) {
@@ -74,13 +74,13 @@ public class ThreadUtils {
                     policy.set(ValueLayout.JAVA_INT, 4, 1000000);  // computation
                     policy.set(ValueLayout.JAVA_INT, 8, 1000000);  // constraint
                     policy.set(ValueLayout.JAVA_BYTE, 12, (byte) 1); // preemptible
-                    thread_policy_set.invokeExact(thread, THREAD_TIME_CONSTRAINT_POLICY, policy, 4); // 4 = count of ints
+                    int _ = (int) thread_policy_set.invokeExact(thread, THREAD_TIME_CONSTRAINT_POLICY, policy, 4); // 4 = count of ints
                 }
             } else if (pthread_setschedparam != null) { // Linux
                 try (Arena arena = Arena.ofConfined()) {
                     MemorySegment param = arena.allocate(ValueLayout.JAVA_INT);
                     param.set(ValueLayout.JAVA_INT, 0, 99);
-                    pthread_setschedparam.invokeExact((long)pthread_self.invokeExact(), SCHED_RR, param);
+                    int _ = (int) pthread_setschedparam.invokeExact((long)pthread_self.invokeExact(), SCHED_RR, param);
                 }
             }
         } catch (Throwable t) {}

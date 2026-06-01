@@ -51,6 +51,44 @@ public class RtMidiFactory {
     }
 
     /**
+     * Creates a MIDI input instance for a specific API with the given client name.
+     * @param api the API to use.
+     * @param clientName the client name used to group created ports.
+     * @return a new RtMidiIn instance.
+     */
+    public static RtMidiIn createIn(RtMidi.Api api, String clientName) {
+        RtMidiIn in = createIn(api);
+        in.setClientName(clientName);
+        return in;
+    }
+
+    /**
+     * Creates a MIDI input instance with the given client name and input queue limit.
+     * @param api the API to use.
+     * @param clientName the client name used to group created ports.
+     * @param queueSizeLimit the maximum number of messages held in the input queue.
+     * @return a new RtMidiIn instance.
+     */
+    public static RtMidiIn createIn(RtMidi.Api api, String clientName, int queueSizeLimit) {
+        RtMidiIn in = createIn(api);
+        in.setClientName(clientName);
+        in.setQueueSizeLimit(queueSizeLimit);
+        return in;
+    }
+
+    /**
+     * Creates a MIDI output instance for a specific API with the given client name.
+     * @param api the API to use.
+     * @param clientName the client name used to group created ports.
+     * @return a new RtMidiOut instance.
+     */
+    public static RtMidiOut createOut(RtMidi.Api api, String clientName) {
+        RtMidiOut out = createOut(api);
+        out.setClientName(clientName);
+        return out;
+    }
+
+    /**
      * Creates a MIDI input instance using the default API for the current OS.
      */
     public static RtMidiIn createDefaultIn() {

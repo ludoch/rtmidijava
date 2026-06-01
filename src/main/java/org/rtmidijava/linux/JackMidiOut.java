@@ -1,6 +1,7 @@
 package org.rtmidijava.linux;
 
 import org.rtmidijava.RtMidiOut;
+import org.rtmidijava.RtMidiException;
 import java.lang.foreign.*;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -38,15 +39,15 @@ public class JackMidiOut extends RtMidiOut {
             long space = (long) jack_ringbuffer_read_space.invokeExact(ringBuffer);
             while (space > 0) {
                 MemorySegment pSize = preallocatedSize; // Reuse
-                jack_ringbuffer_read.invokeExact(ringBuffer, pSize, 4L);
+                long _ = (long) jack_ringbuffer_read.invokeExact(ringBuffer, pSize, 4L);
                 int len = pSize.get(ValueLayout.JAVA_INT, 0);
                 // We still need a temporary segment or a pool for data if we want Zero-GC here
                 // For now, use a shared arena but this is tricky because ringbuffer_read needs a destination.
                 // Simplified: we'll use an arena but for size we are pre-allocated.
                 try (Arena local = Arena.ofConfined()) {
                     MemorySegment pMidi = local.allocate(len);
-                    jack_ringbuffer_read.invokeExact(ringBuffer, pMidi, (long) len);
-                    jack_midi_event_write.invokeExact(buffer, 0, pMidi, (long) len);
+                    long _ = (long) jack_ringbuffer_read.invokeExact(ringBuffer, pMidi, (long) len);
+                    int _ = (int) jack_midi_event_write.invokeExact(buffer, 0, pMidi, (long) len);
                 }
                 space = (long) jack_ringbuffer_read_space.invokeExact(ringBuffer);
             }
@@ -79,14 +80,17 @@ public class JackMidiOut extends RtMidiOut {
         if (client.equals(MemorySegment.NULL)) {
             try {
                 jackArena = Arena.ofShared();
-                client = (MemorySegment) jack_client_open.invokeExact(jackArena.allocateFrom("RtMidiJava Out"), JackNoStartServer, MemorySegment.NULL);
-                if (client.equals(MemorySegment.NULL)) throw new RuntimeException("JACK server not running?");
+                client = (MemorySegment) jack_client_open.invokeExact(jackArena.allocateFrom(clientName), JackNoStartServer, MemorySegment.NULL);
+                if (client.equals(MemorySegment.NULL)) {
+                    error(RtMidiException.Type.DRIVER_ERROR, "JACK server not running?");
+                    return;
+                }
                 ringBuffer = (MemorySegment) jack_ringbuffer_create.invokeExact(16384L);
                 preallocatedSize = jackArena.allocate(ValueLayout.JAVA_INT);
-                jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
-                jack_activate.invokeExact(client);
+                int _ = (int) jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
+                int _ = (int) jack_activate.invokeExact(client);
             } catch (Throwable t) {
-                throw new RuntimeException(t);
+                error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
             }
         }
     }
@@ -113,13 +117,16 @@ public class JackMidiOut extends RtMidiOut {
     @Override
     public synchronized void openPort(int portNumber, String portName) {
         String destName = getPortName(portNumber);
-        if (destName == null) throw new RuntimeException("Invalid port number");
+        if (destName == null) {
+            error(RtMidiException.Type.INVALID_PARAMETER, "Invalid port number");
+            return;
+        }
         
         initClient();
         openVirtualPort(portName);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pName = (MemorySegment) jack_port_name.invokeExact(port);
-            jack_connect.invokeExact(client, pName, arena.allocateFrom(destName));
+            int _ = (int) jack_connect.invokeExact(client, pName, arena.allocateFrom(destName));
         } catch (Throwable t) {}
     }
 
@@ -130,7 +137,7 @@ public class JackMidiOut extends RtMidiOut {
             port = (MemorySegment) jack_port_register.invokeExact(client, arena.allocateFrom(portName), arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsOutput, 0L);
             connected = true;
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -138,7 +145,7 @@ public class JackMidiOut extends RtMidiOut {
     public synchronized void closePort() {
         if (!client.equals(MemorySegment.NULL)) {
             try {
-                jack_client_close.invokeExact(client);
+                int _ = (int) jack_client_close.invokeExact(client);
                 jack_ringbuffer_free.invokeExact(ringBuffer);
             } catch (Throwable t) {}
             client = MemorySegment.NULL;
@@ -166,8 +173,8 @@ public class JackMidiOut extends RtMidiOut {
         try {
             MemorySegment pSize = preallocatedSize;
             pSize.set(ValueLayout.JAVA_INT, 0, (int)message.byteSize());
-            jack_ringbuffer_write.invokeExact(ringBuffer, pSize, 4L);
-            jack_ringbuffer_write.invokeExact(ringBuffer, message, message.byteSize());
+            long _ = (long) jack_ringbuffer_write.invokeExact(ringBuffer, pSize, 4L);
+            long _ = (long) jack_ringbuffer_write.invokeExact(ringBuffer, message, message.byteSize());
         } catch (Throwable t) {}
     }
 }

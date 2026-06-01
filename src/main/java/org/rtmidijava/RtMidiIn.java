@@ -17,14 +17,22 @@ public abstract class RtMidiIn extends RtMidi {
      */
     public record MidiMessage(double timeStamp, byte[] data) {}
 
+    /** Default off-heap input queue size in bytes when no message limit is set. */
+    private static final long DEFAULT_QUEUE_BYTES = 65536;
+    /** Bytes reserved per message when sizing the queue from a message-count limit. */
+    private static final long BYTES_PER_MESSAGE = 1024;
+
     protected final Arena sharedArena = Arena.ofShared();
-    protected final MidiRingBuffer ringBuffer = new MidiRingBuffer(65536, sharedArena);
-    
+    protected MidiRingBuffer ringBuffer = new MidiRingBuffer(DEFAULT_QUEUE_BYTES, sharedArena);
+
     protected boolean ignoreSysex = true;
     protected boolean ignoreTime = true;
     protected boolean ignoreSense = true;
     protected volatile Callback callback;
     protected volatile FastCallback fastCallback;
+
+    protected int bufferSize = 1024;
+    protected int bufferCount = 4;
 
     /**
      * Functional interface for MIDI input callbacks.
@@ -56,10 +64,36 @@ public abstract class RtMidiIn extends RtMidi {
         this.fastCallback = null;
     }
 
+    /**
+     * Sets the maximum number of messages the input queue can hold when no
+     * callback is used. Resizes the off-heap ring buffer; must be called before
+     * {@link #openPort}. A limit of {@code <= 0} restores the default size.
+     * @param queueSizeLimit the maximum number of queued messages.
+     */
+    public void setQueueSizeLimit(int queueSizeLimit) {
+        long bytes = queueSizeLimit > 0
+                ? Math.max(queueSizeLimit * BYTES_PER_MESSAGE, DEFAULT_QUEUE_BYTES)
+                : DEFAULT_QUEUE_BYTES;
+        this.ringBuffer = new MidiRingBuffer(bytes, sharedArena);
+    }
+
     public void ignoreTypes(boolean midiSysex, boolean midiTime, boolean midiSense) {
         this.ignoreSysex = midiSysex;
         this.ignoreTime = midiTime;
         this.ignoreSense = midiSense;
+    }
+
+    /**
+     * Sets the maximum expected incoming message size for APIs that require
+     * manual buffer management (principally the Windows MM backend). Has no
+     * effect when called after {@link #openPort}. Backends with dynamically
+     * sized buffers ignore these hints.
+     * @param size  the buffer size in bytes.
+     * @param count the number of buffers.
+     */
+    public void setBufferSize(int size, int count) {
+        this.bufferSize = size;
+        this.bufferCount = count;
     }
 
     /**

@@ -1,6 +1,7 @@
 package org.rtmidijava.linux;
 
 import org.rtmidijava.RtMidiIn;
+import org.rtmidijava.RtMidiException;
 import java.lang.foreign.*;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -36,7 +37,7 @@ public class JackMidiIn extends RtMidiIn {
             int count = (int) getCountHandle.invokeExact(buffer);
 
             for (int i = 0; i < count; i++) {
-                jack_midi_event_get.invokeExact(preallocatedEvent, buffer, i);
+                int _ = (int) jack_midi_event_get.invokeExact(preallocatedEvent, buffer, i);
                 int len = (int) preallocatedEvent.get(ValueLayout.JAVA_LONG, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("size")));
                 MemorySegment dataPtr = preallocatedEvent.get(ValueLayout.ADDRESS, jack_midi_event_t.byteOffset(MemoryLayout.PathElement.groupElement("buffer")));
                 
@@ -75,16 +76,19 @@ public class JackMidiIn extends RtMidiIn {
         if (client.equals(MemorySegment.NULL)) {
             try {
                 jackArena = Arena.ofShared();
-                client = (MemorySegment) jack_client_open.invokeExact(jackArena.allocateFrom("RtMidiJava In"), JackNoStartServer, MemorySegment.NULL);
-                if (client.equals(MemorySegment.NULL)) throw new RuntimeException("JACK server not running?");
+                client = (MemorySegment) jack_client_open.invokeExact(jackArena.allocateFrom(clientName), JackNoStartServer, MemorySegment.NULL);
+                if (client.equals(MemorySegment.NULL)) {
+                    error(RtMidiException.Type.DRIVER_ERROR, "JACK server not running?");
+                    return;
+                }
                 
                 preallocatedEvent = jackArena.allocate(jack_midi_event_t);
                 getCountHandle = LINKER.downcallHandle(JACK.find("jack_midi_get_event_count").get(), FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
                 
-                jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
-                jack_activate.invokeExact(client);
+                int _ = (int) jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);
+                int _ = (int) jack_activate.invokeExact(client);
             } catch (Throwable t) {
-                throw new RuntimeException(t);
+                error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
             }
         }
     }
@@ -111,13 +115,16 @@ public class JackMidiIn extends RtMidiIn {
     @Override
     public synchronized void openPort(int portNumber, String portName) {
         String srcName = getPortName(portNumber);
-        if (srcName == null) throw new RuntimeException("Invalid port number");
+        if (srcName == null) {
+            error(RtMidiException.Type.INVALID_PARAMETER, "Invalid port number");
+            return;
+        }
 
         initClient();
         openVirtualPort(portName);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pName = (MemorySegment) jack_port_name.invokeExact(port);
-            jack_connect.invokeExact(client, arena.allocateFrom(srcName), pName);
+            int _ = (int) jack_connect.invokeExact(client, arena.allocateFrom(srcName), pName);
         } catch (Throwable t) {}
     }
 
@@ -128,7 +135,7 @@ public class JackMidiIn extends RtMidiIn {
             port = (MemorySegment) jack_port_register.invokeExact(client, arena.allocateFrom(portName), arena.allocateFrom(JACK_MIDI_TYPE), (long) JackPortIsInput, 0L);
             connected = true;
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -136,7 +143,7 @@ public class JackMidiIn extends RtMidiIn {
     public synchronized void closePort() {
         if (!client.equals(MemorySegment.NULL)) {
             try {
-                jack_client_close.invokeExact(client);
+                int _ = (int) jack_client_close.invokeExact(client);
             } catch (Throwable t) {}
             client = MemorySegment.NULL;
             port = MemorySegment.NULL;

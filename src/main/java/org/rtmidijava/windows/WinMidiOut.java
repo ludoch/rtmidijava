@@ -86,7 +86,9 @@ public class WinMidiOut extends RtMidiOut {
             if (result != 0) {
                 String errMsg = getErrorText(result);
                 instanceArena.close();
-                throw new org.rtmidijava.RtMidiException("WinMidiOut::openPort: " + errMsg, org.rtmidijava.RtMidiException.Type.DRIVER_ERROR);
+                instanceArena = null;
+                error(org.rtmidijava.RtMidiException.Type.DRIVER_ERROR, "WinMidiOut::openPort: " + errMsg);
+                return;
             }
             hMidiOut = phmo.get(ValueLayout.ADDRESS, 0).address();
             sysexHeader = instanceArena.allocate(MIDIHDR);
@@ -94,14 +96,14 @@ public class WinMidiOut extends RtMidiOut {
         } catch (org.rtmidijava.RtMidiException e) {
             throw e;
         } catch (Throwable t) {
-            if (instanceArena != null) instanceArena.close();
-            throw new org.rtmidijava.RtMidiException("WinMidiOut::openPort: " + t.getMessage(), org.rtmidijava.RtMidiException.Type.SYSTEM_ERROR);
+            if (instanceArena != null) { instanceArena.close(); instanceArena = null; }
+            error(org.rtmidijava.RtMidiException.Type.SYSTEM_ERROR, "WinMidiOut::openPort: " + t.getMessage());
         }
     }
 
     @Override
     public void openVirtualPort(String portName) {
-        throw new UnsupportedOperationException("Virtual ports not supported on Windows WinMM");
+        error(org.rtmidijava.RtMidiException.Type.INVALID_USE, "Virtual ports not supported on Windows WinMM");
     }
 
     @Override

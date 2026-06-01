@@ -1,6 +1,7 @@
 package org.rtmidijava.linux;
 
 import org.rtmidijava.RtMidiIn;
+import org.rtmidijava.RtMidiException;
 import java.lang.foreign.*;
 import java.util.List;
 
@@ -38,7 +39,8 @@ public class AlsaMidiIn extends RtMidiIn {
     public synchronized void openPort(int portNumber, String portName) {
         List<AlsaPortInfo> ports = getPorts(true);
         if (portNumber < 0 || portNumber >= ports.size()) {
-            throw new RuntimeException("Invalid port number");
+            error(RtMidiException.Type.INVALID_PARAMETER, "Invalid port number");
+            return;
         }
         AlsaPortInfo src = ports.get(portNumber);
 
@@ -49,12 +51,13 @@ public class AlsaMidiIn extends RtMidiIn {
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
-                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    error(RtMidiException.Type.DRIVER_ERROR, "snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    return;
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 
                 // Pro-Audio: Increase client pool for large Sysex
-                snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
+                int _ = (int) snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
 
                 // Pre-allocate reassembly buffer in shared arena
                 sysexNativeBuffer = sharedArena.allocate(8192);
@@ -62,20 +65,20 @@ public class AlsaMidiIn extends RtMidiIn {
             
             // Pro-Audio: Create wakeup pipe for clean shutdown
             MemorySegment fds = arena.allocate(ValueLayout.JAVA_INT, 2);
-            UnixApi.pipe.invokeExact(fds);
+            int _ = (int) UnixApi.pipe.invokeExact(fds);
             pipeRead = fds.get(ValueLayout.JAVA_INT, 0);
             pipeWrite = fds.get(ValueLayout.JAVA_INT, 4);
 
-            snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
+            int _ = (int) snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom(clientName));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
-            snd_seq_connect_to.invokeExact(seqHandle, src.client, src.port, vPort);
+            int _ = (int) snd_seq_connect_to.invokeExact(seqHandle, src.client, src.port, vPort);
             
             connected = true;
             startWorker();
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -88,29 +91,30 @@ public class AlsaMidiIn extends RtMidiIn {
                 if (result < 0) {
                     MemorySegment errPtr = (MemorySegment) UnixApi.strerror.invokeExact(-result);
                     String errMsg = errPtr.reinterpret(256).getString(0);
-                    throw new RuntimeException("snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    error(RtMidiException.Type.DRIVER_ERROR, "snd_seq_open failed: " + errMsg + " (" + result + ")");
+                    return;
                 }
                 seqHandle = pHandle.get(ValueLayout.ADDRESS, 0).reinterpret(Long.MAX_VALUE);
                 
                 // Pro-Audio: Increase client pool for large Sysex
-                snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
+                int _ = (int) snd_seq_set_client_pool_input.invokeExact(seqHandle, 4096L);
                 sysexNativeBuffer = sharedArena.allocate(8192);
             }
             
             // Pro-Audio: Create wakeup pipe for clean shutdown
             MemorySegment fds = arena.allocate(ValueLayout.JAVA_INT, 2);
-            UnixApi.pipe.invokeExact(fds);
+            int _ = (int) UnixApi.pipe.invokeExact(fds);
             pipeRead = fds.get(ValueLayout.JAVA_INT, 0);
             pipeWrite = fds.get(ValueLayout.JAVA_INT, 4);
 
-            snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom("RtMidiJava Client"));
+            int _ = (int) snd_seq_set_client_name.invokeExact(seqHandle, arena.allocateFrom(clientName));
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
             connected = true;
             startWorker();
         } catch (Throwable t) {
-            throw new RuntimeException(t);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -123,7 +127,7 @@ public class AlsaMidiIn extends RtMidiIn {
                 MemorySegment pollFds = arena.allocate(UnixApi.pollfd, totalCount);
                 
                 while (connected) {
-                    snd_seq_poll_descriptors.invokeExact(seqHandle, pollFds, alsaCount, UnixApi.POLLIN);
+                    int _ = (int) snd_seq_poll_descriptors.invokeExact(seqHandle, pollFds, alsaCount, UnixApi.POLLIN);
                     
                     MemorySegment pipeFd = pollFds.asSlice(alsaCount * UnixApi.pollfd.byteSize());
                     pipeFd.set(ValueLayout.JAVA_INT, 0, pipeRead);
@@ -158,10 +162,18 @@ public class AlsaMidiIn extends RtMidiIn {
             switch (type) {
                 case SND_SEQ_EVENT_NOTEON -> onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0x90 | channel), note, velocity}));
                 case SND_SEQ_EVENT_NOTEOFF -> onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0x80 | channel), note, velocity}));
+                case SND_SEQ_EVENT_KEYPRESS -> onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0xA0 | channel), note, velocity}));
                 case SND_SEQ_EVENT_CONTROLLER -> {
-                    int param = ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("control"), MemoryLayout.PathElement.groupElement("param")));
-                    int value = ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("control"), MemoryLayout.PathElement.groupElement("value")));
+                    int param = ctrlParam(ev);
+                    int value = ctrlValue(ev);
                     onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0xB0 | channel), (byte) param, (byte) value}));
+                }
+                case SND_SEQ_EVENT_PGMCHANGE -> onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0xC0 | channel), (byte) (ctrlValue(ev) & 0x7F)}));
+                case SND_SEQ_EVENT_CHANPRESS -> onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0xD0 | channel), (byte) (ctrlValue(ev) & 0x7F)}));
+                case SND_SEQ_EVENT_PITCHBEND -> {
+                    // ALSA pitch bend value is signed (-8192..8191); MIDI wants 0..16383.
+                    int bend = ctrlValue(ev) + 8192;
+                    onIncomingMessage(ts, local.allocateFrom(ValueLayout.JAVA_BYTE, new byte[]{(byte) (0xE0 | channel), (byte) (bend & 0x7F), (byte) ((bend >> 7) & 0x7F)}));
                 }
                 case SND_SEQ_EVENT_SYSEX -> {
                     int len = ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("len")));
@@ -180,6 +192,14 @@ public class AlsaMidiIn extends RtMidiIn {
         } catch (Throwable t) {}
     }
 
+    private static int ctrlParam(MemorySegment ev) {
+        return ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("control"), MemoryLayout.PathElement.groupElement("param")));
+    }
+
+    private static int ctrlValue(MemorySegment ev) {
+        return ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("control"), MemoryLayout.PathElement.groupElement("value")));
+    }
+
     @Override
     public synchronized void closePort() {
         if (!connected) return;
@@ -189,21 +209,21 @@ public class AlsaMidiIn extends RtMidiIn {
             try (Arena arena = Arena.ofConfined()) {
                 MemorySegment b = arena.allocate(1);
                 b.set(ValueLayout.JAVA_BYTE, 0, (byte) 1);
-                UnixApi.write.invokeExact(pipeWrite, b, 1L);
+                long _ = (long) UnixApi.write.invokeExact(pipeWrite, b, 1L);
             } catch (Throwable t) {}
         }
 
         if (!seqHandle.equals(MemorySegment.NULL)) {
             try {
-                snd_seq_close.invokeExact(seqHandle);
+                int _ = (int) snd_seq_close.invokeExact(seqHandle);
             } catch (Throwable t) {}
             seqHandle = MemorySegment.NULL;
         }
 
         if (pipeRead != -1) {
             try {
-                UnixApi.close.invokeExact(pipeRead);
-                UnixApi.close.invokeExact(pipeWrite);
+                int _ = (int) UnixApi.close.invokeExact(pipeRead);
+                int _ = (int) UnixApi.close.invokeExact(pipeWrite);
             } catch (Throwable t) {}
             pipeRead = -1;
             pipeWrite = -1;

@@ -91,30 +91,20 @@ public class CoreMidiIn extends RtMidiIn {
     }
 
     private static void onNotifyStatic(MemorySegment message, MemorySegment refCon) {
-        System.out.println("DEBUG: onNotifyStatic triggered!");
+        // MIDI setup-change notifications are not currently surfaced.
     }
 
     public static void onMidiMessageStatic(MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
         long id = readProcRefCon.address();
-        // Keep this print as it seems to ensure enough delay/barrier for CoreMIDI
-        System.out.println("DEBUG: onMidiMessageStatic triggered for id " + id);
-        try {
-            CoreMidiIn instance = instances.get(id);
-            if (instance != null) {
-                instance.onMidiMessage(pktList);
-            } else {
-                System.out.println("CRITICAL: No instance found for id " + id);
-            }
-        } catch (Throwable t) {
-            t.printStackTrace();
+        CoreMidiIn instance = instances.get(id);
+        if (instance != null) {
+            instance.onMidiMessage(pktList);
         }
-        System.out.flush();
     }
 
     public CoreMidiIn() {
         this.instanceId = nextId.getAndIncrement();
         instances.put(instanceId, this);
-        System.out.println("DEBUG: Created CoreMidiIn instance " + instanceId);
     }
 
     private synchronized void onMidiMessage(MemorySegment pktList) {
@@ -136,7 +126,6 @@ public class CoreMidiIn extends RtMidiIn {
             offset += 10 + length;
             if (offset % 4 != 0) offset += (4 - (offset % 4));
         }
-        System.out.flush();
     }
 
     @Override
@@ -185,7 +174,7 @@ public class CoreMidiIn extends RtMidiIn {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Input Client", arena);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString(clientName, arena);
             int status = (int) midiClientCreate.invokeExact(cfClientName, notifyStub, MemorySegment.NULL, pClient);
             checkStatus(status, "MIDIClientCreate failed");
             client = pClient.get(ValueLayout.JAVA_INT, 0);
@@ -203,7 +192,7 @@ public class CoreMidiIn extends RtMidiIn {
             checkStatus(status, "MIDIPortConnectSource failed");
             connected = true;
         } catch (Throwable t) {
-            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -212,7 +201,7 @@ public class CoreMidiIn extends RtMidiIn {
         if (connected) closePort();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment pClient = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment cfClientName = CoreMidiUtils.createCFString("RtMidi Input Client", arena);
+            MemorySegment cfClientName = CoreMidiUtils.createCFString(clientName, arena);
             int status = (int) midiClientCreate.invokeExact(cfClientName, notifyStub, MemorySegment.NULL, pClient);
             checkStatus(status, "MIDIClientCreate failed");
             client = pClient.get(ValueLayout.JAVA_INT, 0);
@@ -232,7 +221,7 @@ public class CoreMidiIn extends RtMidiIn {
             CoreMidiUtils.release(cfPortName);
             connected = true;
         } catch (Throwable t) {
-            throw new RtMidiException(t.getMessage(), RtMidiException.Type.DRIVER_ERROR);
+            error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
         }
     }
 
@@ -240,7 +229,7 @@ public class CoreMidiIn extends RtMidiIn {
     public synchronized void closePort() {
         if (client != 0) {
             try {
-                midiClientDispose.invokeExact(client);
+                int _ = (int) midiClientDispose.invokeExact(client);
             } catch (Throwable t) {}
             client = 0;
             port = 0;

@@ -37,6 +37,12 @@ public class AlsaApi {
     public static final int SND_SEQ_PORT_TYPE_PORT = (1<<19);
     public static final int SND_SEQ_PORT_TYPE_APPLICATION = (1<<20);
 
+    // Special queue / address ids
+    public static final byte SND_SEQ_QUEUE_DIRECT = (byte) 253;
+    public static final byte SND_SEQ_ADDRESS_UNKNOWN = (byte) 253;
+    public static final byte SND_SEQ_ADDRESS_SUBSCRIBERS = (byte) 254;
+    public static final byte SND_SEQ_ADDRESS_BROADCAST = (byte) 255;
+
     // Event types
     public static final byte SND_SEQ_EVENT_NOTEON = 6;
     public static final byte SND_SEQ_EVENT_NOTEOFF = 7;
@@ -255,7 +261,7 @@ public class AlsaApi {
                     }
                 }
             }
-            snd_seq_close.invokeExact(h);
+            int _ = (int) snd_seq_close.invokeExact(h);
         } catch (Throwable t) {
             // t.printStackTrace();
         }
