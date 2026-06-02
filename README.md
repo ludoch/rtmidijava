@@ -65,7 +65,7 @@ RtMidiJava is available on Maven Central. Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.ludoch</groupId>
     <artifactId>rtmidijava</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
 </dependency>
 ```
 
@@ -100,7 +100,7 @@ The static helpers ported from upstream RtMidi let you query the library and the
 available backends without constructing a port:
 
 ```java
-RtMidi.getVersion();                                  // e.g. "1.0.2"
+RtMidi.getVersion();                                  // e.g. "1.0.3"
 RtMidi.getCompiledApi();                               // List<Api> usable on this OS
 RtMidi.getApiName(RtMidi.Api.LINUX_ALSA);              // "alsa" (stable identifier)
 RtMidi.getApiDisplayName(RtMidi.Api.LINUX_ALSA);       // "ALSA"
