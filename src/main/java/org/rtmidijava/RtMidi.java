@@ -10,7 +10,7 @@ import java.util.List;
 public abstract class RtMidi {
 
     /** Version of the RtMidiJava port. */
-    public static final String VERSION = "1.0.3";
+    public static final String VERSION = "1.0.4";
 
     /**
      * Enumeration of supported native MIDI APIs.
