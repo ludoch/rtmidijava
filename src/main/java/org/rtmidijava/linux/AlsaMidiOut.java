@@ -66,7 +66,7 @@ public class AlsaMidiOut extends RtMidiOut {
                 SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
             int _ = (int) snd_seq_connect_to.invokeExact(seqHandle, vPort, dest.client, dest.port);
-            
+
             connected = true;
         } catch (Throwable t) {
             error(RtMidiException.Type.DRIVER_ERROR, String.valueOf(t.getMessage()));
@@ -138,8 +138,13 @@ public class AlsaMidiOut extends RtMidiOut {
 
             if ((status & 0xFF) == 0xF0) {
                 eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("type")), SND_SEQ_EVENT_SYSEX);
+                // Variable-length events must flag SND_SEQ_EVENT_LENGTH_VARIABLE (mirrors
+                // snd_seq_ev_set_variable); otherwise event_output_direct returns -EINVAL (-22).
+                eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("flags")), SND_SEQ_EVENT_LENGTH_VARIABLE);
                 eventTemplate.set(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("len")), (int)len);
-                eventTemplate.set(ValueLayout.ADDRESS, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")), message);
+                // ext.ptr sits at a 4-aligned offset in ALSA's packed 28-byte snd_seq_event_t; the
+                // default ADDRESS layout demands 8-alignment and throws. Use a 4-aligned address.
+                eventTemplate.set(ValueLayout.ADDRESS.withByteAlignment(4), snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")), message);
             } else {
                 int type = (status & 0xFF) >> 4;
                 byte alsaType = switch (type) {
@@ -169,6 +174,8 @@ public class AlsaMidiOut extends RtMidiOut {
             eventTemplate.set(ValueLayout.JAVA_BYTE, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("dest"), MemoryLayout.PathElement.groupElement("port")), SND_SEQ_ADDRESS_UNKNOWN);
 
             int _ = (int) snd_seq_event_output_direct.invokeExact(seqHandle, eventTemplate);
-        } catch (Throwable t) {}
+        } catch (Throwable t) {
+            System.err.println("rtmidijava: MIDI send failed: " + t);
+        }
     }
 }

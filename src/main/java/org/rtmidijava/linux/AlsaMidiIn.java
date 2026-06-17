@@ -73,8 +73,12 @@ public class AlsaMidiIn extends RtMidiIn {
             vPort = (int) snd_seq_create_simple_port.invokeExact(seqHandle, arena.allocateFrom(portName), 
                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE, SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
             
-            int _ = (int) snd_seq_connect_to.invokeExact(seqHandle, src.client, src.port, vPort);
-            
+            // Input subscription: connect the source (sender) port TO our read port. This is
+            // snd_seq_connect_from(seq, myPort, srcClient, srcPort) — NOT connect_to (which is for
+            // output). The previous connect_to call left the input port unsubscribed, so no events
+            // were ever received on Linux/ALSA.
+            int _ = (int) snd_seq_connect_from.invokeExact(seqHandle, vPort, src.client, src.port);
+
             connected = true;
             startWorker();
         } catch (Throwable t) {
@@ -155,7 +159,9 @@ public class AlsaMidiIn extends RtMidiIn {
                     MemorySegment ev = pEv.get(ValueLayout.ADDRESS, 0).reinterpret(snd_seq_event_t.byteSize());
                     parseAndDispatch(ev);
                 }
-            } catch (Throwable t) {}
+            } catch (Throwable t) {
+                System.err.println("rtmidijava: MIDI input worker stopped: " + t);
+            }
         });
         worker.setDaemon(true);
         worker.start();
@@ -187,19 +193,37 @@ public class AlsaMidiIn extends RtMidiIn {
                 }
                 case SND_SEQ_EVENT_SYSEX -> {
                     int len = ev.get(ValueLayout.JAVA_INT, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("len")));
-                    MemorySegment ptr = ev.get(ValueLayout.ADDRESS, snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")));
+                    // ext.ptr sits at a 4-aligned offset in ALSA's packed 28-byte snd_seq_event_t;
+                    // the default ADDRESS layout demands 8-alignment and throws. Use 4-aligned.
+                    MemorySegment ptr = ev.get(ValueLayout.ADDRESS.withByteAlignment(4), snd_seq_event_t.byteOffset(MemoryLayout.PathElement.groupElement("data"), MemoryLayout.PathElement.groupElement("ext"), MemoryLayout.PathElement.groupElement("ptr")));
+                    if (len <= 0) break;
                     MemorySegment data = ptr.reinterpret(len);
-                    
+
+                    // Resync: a SysEx always begins with 0xF0. If a new fragment starts with 0xF0
+                    // while we still hold a partial message, the previous one's tail was lost
+                    // (e.g. an input overrun under heavy traffic dropped a fragment). Discard the
+                    // orphaned partial so we don't splice two messages together and corrupt both.
+                    if (sysexOffset != 0 && data.get(ValueLayout.JAVA_BYTE, 0) == (byte) 0xF0) {
+                        sysexOffset = 0;
+                    }
+                    // Guard against buffer overflow from a runaway/corrupt accumulation.
+                    if (sysexOffset + len > sysexNativeBuffer.byteSize()) {
+                        sysexOffset = 0;
+                        if (len > sysexNativeBuffer.byteSize()) break; // single fragment too large
+                    }
+
                     MemorySegment.copy(data, 0, sysexNativeBuffer, sysexOffset, len);
                     sysexOffset += len;
-                    
+
                     if (data.get(ValueLayout.JAVA_BYTE, len - 1) == (byte)0xF7) {
                         onIncomingMessage(ts, sysexNativeBuffer.asSlice(0, sysexOffset));
                         sysexOffset = 0;
                     }
                 }
             }
-        } catch (Throwable t) {}
+        } catch (Throwable t) {
+            System.err.println("rtmidijava: MIDI dispatch failed: " + t);
+        }
     }
 
     private static int ctrlParam(MemorySegment ev) {

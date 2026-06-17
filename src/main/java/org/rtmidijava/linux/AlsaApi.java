@@ -53,6 +53,12 @@ public class AlsaApi {
     public static final byte SND_SEQ_EVENT_PITCHBEND = 13;
     public static final byte SND_SEQ_EVENT_SYSEX = (byte) 130;
 
+    // Event length flags (snd_seq_event_t.flags). Variable-length events (e.g. SysEx) MUST set
+    // SND_SEQ_EVENT_LENGTH_VARIABLE or snd_seq_event_output_direct() returns -EINVAL (-22).
+    public static final byte SND_SEQ_EVENT_LENGTH_FIXED = (byte) (0 << 2);
+    public static final byte SND_SEQ_EVENT_LENGTH_VARIABLE = (byte) (1 << 2);
+    public static final byte SND_SEQ_EVENT_LENGTH_MASK = (byte) (3 << 2);
+
     // Functions
     public static final MethodHandle snd_seq_open = downcall("snd_seq_open", 
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
@@ -70,6 +76,9 @@ public class AlsaApi {
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     public static final MethodHandle snd_seq_connect_to = downcall("snd_seq_connect_to",
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+
+    public static final MethodHandle snd_seq_connect_from = downcall("snd_seq_connect_from",
         FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
 
     public static final MethodHandle snd_seq_disconnect_to = downcall("snd_seq_disconnect_to",
