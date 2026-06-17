@@ -18,16 +18,6 @@ public class JackMidiIn extends RtMidiIn {
     private MethodHandle getCountHandle;
 
     public JackMidiIn() {
-        try {
-            MethodHandle processHandle = MethodHandles.lookup().findVirtual(JackMidiIn.class, "process",
-                    MethodType.methodType(int.class, int.class, MemorySegment.class));
-            processHandle = processHandle.bindTo(this);
-            processStub = LINKER.upcallStub(processHandle,
-                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS),
-                    Arena.global());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private int process(int nframes, MemorySegment arg) {
@@ -82,6 +72,13 @@ public class JackMidiIn extends RtMidiIn {
                     return;
                 }
                 
+                MethodHandle processHandle = MethodHandles.lookup().findVirtual(JackMidiIn.class, "process",
+                        MethodType.methodType(int.class, int.class, MemorySegment.class));
+                processHandle = processHandle.bindTo(this);
+                processStub = LINKER.upcallStub(processHandle,
+                        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS),
+                        jackArena);
+
                 preallocatedEvent = jackArena.allocate(jack_midi_event_t);
                 getCountHandle = LINKER.downcallHandle(JACK.find("jack_midi_get_event_count").get(), FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
                 

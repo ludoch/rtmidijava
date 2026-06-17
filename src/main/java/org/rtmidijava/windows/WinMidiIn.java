@@ -19,16 +19,6 @@ public class WinMidiIn extends RtMidiIn {
     private Thread worker;
 
     public WinMidiIn() {
-        try {
-            MethodHandle onMidiInProc = MethodHandles.lookup().findVirtual(WinMidiIn.class, "midiInProc",
-                    MethodType.methodType(void.class, MemorySegment.class, int.class, long.class, long.class, long.class));
-            onMidiInProc = onMidiInProc.bindTo(this);
-            upcallStub = LINKER.upcallStub(onMidiInProc,
-                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG),
-                    Arena.global());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private synchronized void midiInProc(MemorySegment handle, int wMsg, long dwInstance, long dwParam1, long dwParam2) {
@@ -164,6 +154,13 @@ public class WinMidiIn extends RtMidiIn {
         if (connected) closePort();
         instanceArena = Arena.ofShared();
         try {
+            MethodHandle onMidiInProc = MethodHandles.lookup().findVirtual(WinMidiIn.class, "midiInProc",
+                    MethodType.methodType(void.class, MemorySegment.class, int.class, long.class, long.class, long.class));
+            onMidiInProc = onMidiInProc.bindTo(this);
+            upcallStub = LINKER.upcallStub(onMidiInProc,
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG),
+                    instanceArena);
+
             MemorySegment phmi = instanceArena.allocate(ValueLayout.ADDRESS);
             int result = (int) midiInOpen.invokeExact(phmi, portNumber, upcallStub, 0L, CALLBACK_FUNCTION);
             if (result != 0) {

@@ -18,16 +18,6 @@ public class JackMidiOut extends RtMidiOut {
     private MemorySegment preallocatedSize;
 
     public JackMidiOut() {
-        try {
-            MethodHandle processHandle = MethodHandles.lookup().findVirtual(JackMidiOut.class, "process",
-                    MethodType.methodType(int.class, int.class, MemorySegment.class));
-            processHandle = processHandle.bindTo(this);
-            processStub = LINKER.upcallStub(processHandle,
-                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS),
-                    Arena.global());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private int process(int nframes, MemorySegment arg) {
@@ -85,6 +75,14 @@ public class JackMidiOut extends RtMidiOut {
                     error(RtMidiException.Type.DRIVER_ERROR, "JACK server not running?");
                     return;
                 }
+                
+                MethodHandle processHandle = MethodHandles.lookup().findVirtual(JackMidiOut.class, "process",
+                        MethodType.methodType(int.class, int.class, MemorySegment.class));
+                processHandle = processHandle.bindTo(this);
+                processStub = LINKER.upcallStub(processHandle,
+                        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS),
+                        jackArena);
+
                 ringBuffer = (MemorySegment) jack_ringbuffer_create.invokeExact(16384L);
                 preallocatedSize = jackArena.allocate(ValueLayout.JAVA_INT);
                 int _ = (int) jack_set_process_callback.invokeExact(client, processStub, MemorySegment.NULL);

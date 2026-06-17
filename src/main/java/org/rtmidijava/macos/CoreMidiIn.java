@@ -56,7 +56,7 @@ public class CoreMidiIn extends RtMidiIn {
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)
     );
 
-    private static final Map<Long, CoreMidiIn> instances = new ConcurrentHashMap<>();
+    private static final Map<Long, java.lang.ref.WeakReference<CoreMidiIn>> instances = new ConcurrentHashMap<>();
     private static final AtomicLong nextId = new AtomicLong(1);
     private final long instanceId;
 
@@ -96,7 +96,8 @@ public class CoreMidiIn extends RtMidiIn {
 
     public static void onMidiMessageStatic(MemorySegment pktList, MemorySegment readProcRefCon, MemorySegment srcConnRefCon) {
         long id = readProcRefCon.address();
-        CoreMidiIn instance = instances.get(id);
+        java.lang.ref.WeakReference<CoreMidiIn> ref = instances.get(id);
+        CoreMidiIn instance = ref != null ? ref.get() : null;
         if (instance != null) {
             instance.onMidiMessage(pktList);
         }
@@ -104,7 +105,7 @@ public class CoreMidiIn extends RtMidiIn {
 
     public CoreMidiIn() {
         this.instanceId = nextId.getAndIncrement();
-        instances.put(instanceId, this);
+        instances.put(instanceId, new java.lang.ref.WeakReference<>(this));
     }
 
     private synchronized void onMidiMessage(MemorySegment pktList) {
@@ -235,12 +236,7 @@ public class CoreMidiIn extends RtMidiIn {
             port = 0;
             source = 0;
         }
-        super.closePort();
-    }
-    
-    @Override
-    protected void finalize() throws Throwable {
         instances.remove(instanceId);
-        super.finalize();
+        super.closePort();
     }
 }
