@@ -125,6 +125,15 @@ public abstract class RtMidiIn extends RtMidi {
         int len = ringBuffer.read(data, tsOut);
         if (len < 0) return null;
 
+        if (len > data.length) {
+            // The message is larger than our scratch buffer. read() reports the required length
+            // without consuming, so retry with an exact-sized buffer — otherwise large messages
+            // (e.g. multi-KB SysEx) would overrun the copy below / be silently truncated.
+            data = new byte[len];
+            len = ringBuffer.read(data, tsOut);
+            if (len < 0) return null;
+        }
+
         byte[] actual = new byte[len];
         System.arraycopy(data, 0, actual, 0, len);
         return new MidiMessage(tsOut[0], actual);

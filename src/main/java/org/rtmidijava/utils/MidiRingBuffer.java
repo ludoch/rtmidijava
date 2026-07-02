@@ -73,14 +73,21 @@ public class MidiRingBuffer {
 
         int len = buffer.get(ValueLayout.JAVA_INT, pos + 8);
         timeStampOut[0] = ts;
-        
-        int bytesToCopy = Math.min(len, target.length);
-        MemorySegment.copy(buffer, pos + 12, MemorySegment.ofArray(target), 0, bytesToCopy);
-        
+
+        // If the caller's buffer is too small, report the required length WITHOUT consuming the
+        // message, so the caller can retry with a big-enough buffer. Previously we copied only what
+        // fit but still returned the full length and consumed the message, which truncated large
+        // messages and let callers overrun a buffer sized to the returned length.
+        if (len > target.length) {
+            return len;
+        }
+
+        MemorySegment.copy(buffer, pos + 12, MemorySegment.ofArray(target), 0, len);
+
         long consumed = 8 + 4 + len;
         if (consumed % 8 != 0) consumed += (8 - (consumed % 8));
         head.addAndGet(consumed);
-        
+
         return len;
     }
 
