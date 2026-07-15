@@ -27,7 +27,7 @@
 
     <scm>
         <connection>scm:git:git://github.com/ludoch/rtmidijava.git</connection>
-        <developerConnection>scm:git:ssh://github.com:ludoch/rtmidijava.git</developerConnection>
+        <developerConnection>scm:git:https://github.com/ludoch/rtmidijava.git</developerConnection>
         <url>https://github.com/ludoch/rtmidijava/tree/main</url>
   </scm>
 
