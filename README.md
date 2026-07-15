@@ -65,7 +65,7 @@ RtMidiJava is available on Maven Central. Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.ludoch</groupId>
     <artifactId>rtmidijava</artifactId>
-    <version>1.0.5</version>
+    <version>1.0.6</version>
 </dependency>
 ```
 
@@ -100,7 +100,7 @@ The static helpers ported from upstream RtMidi let you query the library and the
 available backends without constructing a port:
 
 ```java
-RtMidi.getVersion();                                  // e.g. "1.0.5"
+RtMidi.getVersion();                                  // e.g. "1.0.6"
 RtMidi.getCompiledApi();                               // List<Api> usable on this OS
 RtMidi.getApiName(RtMidi.Api.LINUX_ALSA);              // "alsa" (stable identifier)
 RtMidi.getApiDisplayName(RtMidi.Api.LINUX_ALSA);       // "ALSA"
@@ -118,11 +118,41 @@ in.setBufferSize(4096, 4); // honored by backends with manual buffers (Windows M
 
 ## Development & Releases
 
-### Bumping the Version
-To release a new version:
-1. Update the version in `pom.xml` (e.g., from `1.0.1-SNAPSHOT` to `1.0.1`).
-2. Run the **Deploy to Maven Central** workflow via GitHub Actions (or `mvn deploy`).
-3. Update the version to the next snapshot (e.g., `1.0.2-SNAPSHOT`).
+### Release Process (Maven Release Plugin)
+This repository uses the [Maven Release Plugin](https://maven.apache.org/maven-release/maven-release-plugin/) along with the [Sonatype Central Publishing Plugin](https://github.com/sonatype/central-publishing-maven-plugin) to automate versioning, Git tagging, and publishing directly to Maven Central.
+
+#### 1. Prerequisites
+- Ensure your `~/.m2/settings.xml` has valid credentials for the `central` server ID (Sonatype User Token) and GPG signing credentials.
+- Ensure your local `main` branch is clean and up to date with `origin/main`:
+  ```bash
+  git checkout main
+  git pull origin main
+  git status
+  ```
+
+#### 2. Perform the Release
+Run the automated batch release command, passing your desired Git tag in `vX.Y.Z` format (for example, `v1.0.7` for releasing version `1.0.7`):
+
+```bash
+mvn release:prepare release:perform -B -Dtag=v1.0.7
+```
+
+This single command automatically performs the following steps:
+1. **Verifies:** Runs all unit tests across available OS/MIDI backends to ensure a clean build.
+2. **Releases:** Removes `-SNAPSHOT` from `pom.xml`, creates git commit `[maven-release-plugin] prepare release v1.0.7`, and creates git tag `v1.0.7`.
+3. **Pushes Tag:** Pushes the new release commit and tag (`v1.0.7`) to GitHub (`origin/main`).
+4. **Publishes:** Checkouts the `v1.0.7` tag in `target/checkout`, builds, signs with GPG, and uploads the artifacts (`jar`, `sources`, `javadoc`, and `.asc` signatures) to Maven Central.
+5. **Next Iteration:** Bumps the `pom.xml` version to the next development snapshot (`1.0.8-SNAPSHOT`), commits, and pushes to GitHub.
+
+#### 3. Aborting / Cleaning Up a Failed Release
+If a release attempt fails partway through or needs to be aborted before completion, clean up the local repository state before trying again:
+
+```bash
+git reset --hard origin/main
+mvn release:clean
+rm -f pom.xml.releaseBackup release.properties .DS_Store
+git tag -d v1.0.7 2>/dev/null || true
+```
 
 ### Continuous Integration
 This library is validated via an on-demand GitHub Action across:
