@@ -7,10 +7,10 @@ import java.util.List;
  * Base class for RtMidiJava, a pure Java 25 implementation of the RtMidi API.
  * Uses Foreign Function &amp; Memory (FFM) API to interface with OS-native MIDI stacks.
  */
-public abstract class RtMidi {
+public abstract class RtMidi implements AutoCloseable {
 
     /** Version of the RtMidiJava port. */
-    public static final String VERSION = "1.0.5";
+    public static final String VERSION = "1.0.6";
 
     /**
      * Enumeration of supported native MIDI APIs.
@@ -163,9 +163,19 @@ public abstract class RtMidi {
     }
 
     /**
-     * Closes the current port connection.
+     * Closes the current port connection and destroys any associated native resources.
      */
     public abstract void closePort();
+
+    /**
+     * Closes the current port and destroys native resources.
+     * Implements {@link AutoCloseable#close()} without checked exceptions to allow clean
+     * use in try-with-resources statements, providing deterministic cleanup equivalent to {@code rtmidi_free()}.
+     */
+    @Override
+    public void close() {
+        closePort();
+    }
 
     /**
      * Sets the client name used to group ports created by this instance.

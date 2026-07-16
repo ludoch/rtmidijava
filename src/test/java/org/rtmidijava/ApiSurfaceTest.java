@@ -87,4 +87,15 @@ public class ApiSurfaceTest {
                 () -> in.error(RtMidiException.Type.DRIVER_ERROR, "fail"));
         assertEquals(RtMidiException.Type.DRIVER_ERROR, ex.getType());
     }
+
+    @Test
+    public void testAutoCloseable() {
+        try (RtMidiIn in = RtMidiFactory.createIn(RtMidi.Api.RTMIDI_DUMMY);
+             RtMidiOut out = RtMidiFactory.createOut(RtMidi.Api.RTMIDI_DUMMY)) {
+            assertNotNull(in);
+            assertNotNull(out);
+            assertFalse(in.isPortOpen());
+            assertFalse(out.isPortOpen());
+        } // automatically invokes close() -> closePort() at block exit without exceptions
+    }
 }
